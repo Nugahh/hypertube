@@ -1,0 +1,198 @@
+import asyncio
+import threading
+from datetime import datetime, timedelta, timezone
+
+import httpx
+import pytest
+
+from app import engine as engine_module
+from app import jackett, main, models
+from tests.fakes import TORRENT_A, TORRENT_B, FakeEngine
+from tests.test_jackett import FEED
+
+VIDEO = bytes(range(256)) * 40  # 10 240 bytes, every position distinguishable
+
+
+@pytest.fixture
+def library(logged_in, monkeypatch, tmp_path):
+    """Logged in, with Jackett returning the sample feed and a fake download engine."""
+    async def fetch_xml(q):
+        return FEED
+
+    fetched = []
+
+    async def fetch_torrent(link):
+        fetched.append(link)
+        return TORRENT_A if "Sintel" in link else TORRENT_B
+
+    monkeypatch.setattr(jackett, "fetch_xml", fetch_xml)
+    monkeypatch.setattr(jackett, "fetch_torrent", fetch_torrent)
+    engine = FakeEngine(tmp_path / "downloads", {TORRENT_A: ("sintel.mp4", VIDEO), TORRENT_B: ("bbb.mp4", VIDEO[:5000])})
+    main.app.dependency_overrides[engine_module.get_engine] = lambda: engine
+    logged_in.engine, logged_in.fetched = engine, fetched
+    return logged_in
+
+
+def movie_id(client, title):
+    return next(m["id"] for m in client.get("/api/search").json() if m["title"] == title)
+
+
+def sintel(client):
+    return movie_id(client, "Sintel.2010.720p")
+
+
+def test_search_gives_stable_numeric_ids(library):
+    first = {m["title"]: m["id"] for m in library.get("/api/search").json()}
+    again = {m["title"]: m["id"] for m in library.get("/api/search", params={"q": "sintel"}).json()}
+    assert all(isinstance(i, int) for i in first.values())
+    assert len(set(first.values())) == len(first)  # one id per result, from both sources
+    assert again["Sintel.2010.720p"] == first["Sintel.2010.720p"]
+
+
+def test_every_movie_route_is_closed_to_visitors(client):
+    assert client.get("/api/movies/1").status_code == 401
+    assert client.get("/api/movies/1/stream").status_code == 401
+    assert client.post("/api/movies/1/download").status_code == 401
+
+
+def test_movie_details_show_the_state_and_never_the_provider_link(library):
+    detail = library.get(f"/api/movies/{sintel(library)}").json()
+    assert detail["title"] == "Sintel.2010.720p" and detail["year"] == 2010 and detail["resolution"] == "720p"
+    assert detail["state"] == "idle" and detail["progress"] == 0
+    assert "SECRETKEY" not in str(detail) and "link" not in detail
+
+
+def test_an_unknown_movie_is_a_404(library):
+    assert library.get("/api/movies/999").status_code == 404
+    assert library.get("/api/movies/999/stream").status_code == 404
+
+
+def test_the_first_stream_request_starts_the_download_from_the_providers_torrent(library):
+    library.get(f"/api/movies/{sintel(library)}/stream", headers={"Range": "bytes=0-9"})
+    assert library.fetched == ["http://jackett:9117/dl/internetarchive/?jackett_apikey=SECRETKEY&path=abc&file=Sintel"]
+    assert library.engine.added == [TORRENT_A]
+    library.get(f"/api/movies/{sintel(library)}/stream", headers={"Range": "bytes=0-9"})
+    assert len(library.fetched) == 1  # already running: the provider is not asked again
+
+
+def test_a_whole_file_request_answers_200(library):
+    res = library.get(f"/api/movies/{sintel(library)}/stream")
+    assert res.status_code == 200
+    assert res.content == VIDEO
+    assert res.headers["accept-ranges"] == "bytes"
+    assert res.headers["content-type"] == "video/mp4"
+    assert res.headers["content-length"] == str(len(VIDEO))
+
+
+def test_a_range_request_answers_206_with_just_those_bytes(library):
+    res = library.get(f"/api/movies/{sintel(library)}/stream", headers={"Range": "bytes=100-199"})
+    assert res.status_code == 206
+    assert res.content == VIDEO[100:200]
+    assert res.headers["content-range"] == f"bytes 100-199/{len(VIDEO)}"
+    assert res.headers["content-length"] == "100"
+
+
+def test_open_ended_and_suffix_ranges(library):
+    url = f"/api/movies/{sintel(library)}/stream"
+    assert library.get(url, headers={"Range": "bytes=10000-"}).content == VIDEO[10000:]
+    assert library.get(url, headers={"Range": "bytes=-50"}).content == VIDEO[-50:]
+
+
+def test_a_range_past_the_end_answers_416(library):
+    res = library.get(f"/api/movies/{sintel(library)}/stream", headers={"Range": "bytes=20000-"})
+    assert res.status_code == 416
+    assert res.headers["content-range"] == f"bytes */{len(VIDEO)}"
+
+
+def test_the_stream_waits_for_the_download_instead_of_failing(library):
+    library.engine.ready = 1000  # only the first 1000 bytes have arrived
+    start = threading.Timer(0.4, lambda: setattr(next(iter(library.engine.torrents.values())), "ready", len(VIDEO)))
+    start.start()
+    res = library.get(f"/api/movies/{sintel(library)}/stream")
+    start.join()
+    assert res.content == VIDEO
+
+
+def test_the_stream_asks_the_engine_for_the_bytes_the_player_wants(library):
+    library.get(f"/api/movies/{sintel(library)}/stream", headers={"Range": "bytes=8000-8100"})
+    assert library.engine.torrents["hash-torrent-a"].asked[0] == 8000
+
+
+def test_progress_follows_the_download_and_a_finished_one_is_kept_on_disk(library):
+    library.engine.ready = 2560
+    movie = sintel(library)
+    library.get(f"/api/movies/{movie}/stream", headers={"Range": "bytes=0-9"})
+    detail = library.get(f"/api/movies/{movie}").json()
+    assert (detail["state"], detail["progress"], detail["peers"]) == ("downloading", 0.25, 3)
+
+    library.engine.torrents["hash-torrent-a"].ready = len(VIDEO)
+    detail = library.get(f"/api/movies/{movie}").json()
+    assert (detail["state"], detail["progress"]) == ("ready", 1)
+    assert library.engine.removed == ["hash-torrent-a"]  # no more seeding once we have it
+
+
+def test_a_downloaded_movie_is_served_from_disk_without_the_network(library):
+    movie = sintel(library)
+    library.get(f"/api/movies/{movie}/stream", headers={"Range": "bytes=0-9"})
+    library.get(f"/api/movies/{movie}")  # finishes: ready
+    library.engine.added.clear()
+    library.fetched.clear()
+    res = library.get(f"/api/movies/{movie}/stream", headers={"Range": "bytes=5-9"})
+    assert res.content == VIDEO[5:10]
+    assert library.engine.added == [] and library.fetched == []
+
+
+def test_a_downloaded_file_that_vanished_is_downloaded_again(library):
+    movie = sintel(library)
+    library.get(f"/api/movies/{movie}/stream", headers={"Range": "bytes=0-9"})
+    library.get(f"/api/movies/{movie}")
+    (library.engine.download_dir / "pack" / "sintel.mp4").unlink()
+    library.engine.torrents.clear()
+    assert library.get(f"/api/movies/{movie}/stream", headers={"Range": "bytes=0-9"}).status_code == 206
+
+
+def test_watching_is_recorded_for_the_one_month_cleanup(library, session_factory):
+    movie = sintel(library)
+    library.get(f"/api/movies/{movie}/stream", headers={"Range": "bytes=0-9"})
+    with session_factory() as s:
+        watched = s.get(models.Movie, movie).last_watched_at
+    assert datetime.now(timezone.utc) - watched.replace(tzinfo=timezone.utc) < timedelta(seconds=30)
+
+
+def test_download_starts_the_torrent_without_streaming(library):
+    movie = sintel(library)
+    res = library.post(f"/api/movies/{movie}/download")
+    assert res.status_code == 200 and res.json()["state"] == "downloading"
+    library.post(f"/api/movies/{movie}/download")
+    assert library.engine.added == [TORRENT_A]  # twice, started once
+
+
+def test_a_torrent_without_video_answers_422(library):
+    library.engine.videos[TORRENT_A] = ("readme.txt", None)
+    assert library.get(f"/api/movies/{sintel(library)}/stream").status_code == 422
+
+
+def test_a_junk_torrent_from_the_provider_answers_502(library, monkeypatch):
+    async def junk(link):
+        return b"<html>not a torrent</html>"
+
+    monkeypatch.setattr(jackett, "fetch_torrent", junk)
+    assert library.get(f"/api/movies/{sintel(library)}/stream").status_code == 502
+
+
+def test_fetch_torrent_returns_the_file_the_provider_sends(monkeypatch):
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(lambda r: httpx.Response(200, content=b"data")), **kw)
+    )
+    assert asyncio.run(jackett.fetch_torrent("http://jackett:9117/dl/x/?jackett_apikey=SECRETKEY")) == b"data"
+
+
+def test_fetch_torrent_errors_never_leak_the_api_key(monkeypatch):
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(lambda r: httpx.Response(500)), **kw)
+    )
+    with pytest.raises(jackett.JackettError) as err:
+        asyncio.run(jackett.fetch_torrent("http://jackett:9117/dl/x/?jackett_apikey=SECRETKEY"))
+    assert "SECRETKEY" not in str(err.value)
