@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import select
 
-from app import blender, jackett, movies
+from app import blender, jackett, movies, sources
 from app import textmatch as tm
 from app import tmdb
 from app.models import Movie
@@ -157,17 +157,26 @@ async def find(db, q, genre=None, language="en"):
     failure = None
     if genre != blender.GENRE:
         queries = (_with(base, _all_of(raw)), _with(base, "creator:" + _all_of(raw)))
-        answers = await asyncio.gather(*(jackett.lucene(query) for query in queries), return_exceptions=True)
-        for answer, kind in zip(answers, ("other", "creator")):
-            if isinstance(answer, Exception):
-                failure = failure or answer
+        tasks = [] if sources.is_down() else [asyncio.ensure_future(jackett.lucene(query)) for query in queries]
+        if not tasks:
+            failure = jackett.JackettError("The Internet Archive does not answer")
+        else:
+            await asyncio.wait(tasks, timeout=sources.SLOW)
+        for task, kind in zip(tasks, ("other", "creator")):
+            if not task.done():  # not dropped: Jackett flags its indexer as failing when the client gives up
+                task.add_done_callback(lambda t: t.cancelled() or t.exception())
+                sources.mark_down()
+                failure = failure or jackett.JackettError("The Internet Archive is slow to answer")
+            elif task.exception():
+                failure = failure or task.exception()
             else:
-                for r in answer:
+                for r in task.result():
                     add(r, kind)
-        try:
-            await asyncio.wait_for(_expand(qt, qfold, raw, base, genre, language, lambda r, kind, label: add(r, kind, label)), EXPANSION_TIMEOUT)
-        except Exception as e:  # TMDb is a bonus: a problem there never breaks the search
-            logging.getLogger("uvicorn.error").warning("Search expansion failed: %s", type(e).__name__)
+        if tasks and all(task.done() for task in tasks):  # else archive.org does not answer: the expansions would only wait again
+            try:
+                await asyncio.wait_for(_expand(qt, qfold, raw, base, genre, language, lambda r, kind, label: add(r, kind, label)), EXPANSION_TIMEOUT)
+            except Exception as e:  # TMDb is a bonus: a problem there never breaks the search
+                logging.getLogger("uvicorn.error").warning("Search expansion failed: %s", type(e).__name__)
     for r in blender.search("", genre):  # nine films: compared locally, so typos and accents work on them too
         add(r)
 

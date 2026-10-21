@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -8,7 +9,9 @@ from pathlib import Path
 import httpx
 
 JACKETT_URL = os.getenv("JACKETT_URL", "http://localhost:9117")
-INDEXER = os.getenv("JACKETT_INDEXER", "internetarchive")
+INDEXER = os.getenv("JACKETT_INDEXER", "internetarchive")  # the main one: it gets the archive.org (Lucene) queries
+# other Jackett indexers (comma separated ids) searched next to it, with plain words only; legal sources only
+EXTRA = [i.strip() for i in os.getenv("JACKETT_EXTRA_INDEXERS", "").split(",") if i.strip()]
 CONFIG_FILE = os.getenv("JACKETT_CONFIG", "/jackett-config/Jackett/ServerConfig.json")
 
 TORZNAB = "{http://torznab.com/schemas/2015/feed}"
@@ -24,21 +27,13 @@ def _genre(label, query, section="films"):
     return {"label": label, "query": query, "section": section}
 
 
-# archive.org queries (Lucene syntax) behind each row of the site; the first one is also the home page
+# the rows that are not TMDb genres (those come from movies.known_genres): archive.org queries (Lucene syntax), the first
+# one is also the home page
 GENRES = {
     # labels are English (the default language); the front translates them by id
     "populaires": _genre("Popular", FILMS),
     # not an archive.org query: this row comes from the second source (blender.py)
     "blender": _genre("Open movies", ""),
-    "comedie": _genre("Comedy", f'{FILMS} AND subject:"comedy"'),
-    "drame": _genre("Drama", f'{FILMS} AND subject:"drama"'),
-    "policier": _genre("Crime", f'{FILMS} AND subject:"crime"'),
-    "noir": _genre("Film noir", f'{FILMS} AND subject:"film noir"'),
-    "western": _genre("Western", f'{FILMS} AND subject:"western"'),
-    "horreur": _genre("Sci-fi & horror", "collection:SciFi_Horror"),
-    "documentaire": _genre("Documentaries", f'{FILMS} AND subject:"documentary"'),
-    "muets": _genre("Silent films", "collection:silent_films"),
-    "animation": _genre("Animation", "collection:animationandcartoons"),
     "series": _genre("Classic TV series", "collection:classic_tv", "series"),
 }
 
@@ -103,11 +98,11 @@ def _api_key():
     return os.getenv("JACKETT_API_KEY") or json.loads(Path(CONFIG_FILE).read_text())["APIKey"]
 
 
-async def fetch_xml(q):
+async def fetch_xml(q, indexer=None):
     # as long as Jackett's own HTTP timeout: giving up earlier makes Jackett flag its indexer as failing
     async with httpx.AsyncClient(timeout=100) as client:
         res = await client.get(
-            f"{JACKETT_URL}/api/v2.0/indexers/{INDEXER}/results/torznab/api",
+            f"{JACKETT_URL}/api/v2.0/indexers/{indexer or INDEXER}/results/torznab/api",
             # cat=2000 is Torznab "Movies": without it an empty query returns every kind of upload
             params={"apikey": _api_key(), "t": "search", "cat": 2000, "q": q},
         )
@@ -127,9 +122,9 @@ async def fetch_torrent(link):
         raise JackettError("Jackett unavailable") from e  # never forward str(e): it holds the URL and its API key
 
 
-async def _run(query):
+async def _run(query, indexer=None):
     try:
-        return parse_results(await fetch_xml(query))
+        return parse_results(await (fetch_xml(query) if indexer is None else fetch_xml(query, indexer)))
     except (httpx.HTTPError, OSError, KeyError, ET.ParseError) as e:
         # never forward or log str(e): httpx errors embed the URL, API key included
         logging.getLogger("uvicorn.error").warning("Jackett request failed: %s", type(e).__name__)
@@ -141,8 +136,20 @@ async def lucene(query):
     return await _run(query)
 
 
+async def _all_of(jobs):
+    """Every indexer at once: what those that answered found (most seeded first), an error only when none answered."""
+    answers = await asyncio.gather(*jobs, return_exceptions=True)
+    answered = [a for a in answers if not isinstance(a, Exception)]
+    if not answered:
+        raise answers[0]
+    return sorted((r for a in answered for r in a), key=lambda r: r["seeders"], reverse=True)
+
+
 async def search(q, genre=None):
-    results = await _run(build_query(q, genre))
+    jobs = [_run(build_query(q, genre))]
+    if genre in (None, "populaires"):  # a genre row is an archive.org query: the extra indexers only know plain words
+        jobs += [_run(" ".join(words(q)), i) for i in EXTRA]
+    results = await _all_of(jobs)
     wanted = [w.lower() for w in words(q)]
     if not wanted:
         return results  # home page: archive.org's most downloaded films

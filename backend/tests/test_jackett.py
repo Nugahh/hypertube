@@ -119,9 +119,9 @@ def test_build_query_strips_query_syntax_and_defaults_to_popular_films(q, expect
 @pytest.mark.parametrize(
     "q, genre, expected",
     [
-        ("", "horreur", "collection:SciFi_Horror"),
-        ("", "noir", 'collection:feature_films AND subject:"film noir"'),
-        ("bunny", "animation", "(bunny) AND (collection:animationandcartoons)"),
+        ("", "series", "collection:classic_tv"),
+        ("", "populaires", "collection:feature_films"),
+        ("bunny", "series", "(bunny) AND (collection:classic_tv)"),
         ("bunny", None, "bunny"),  # no genre: search every movie, not only the feature films
     ],
 )
@@ -144,8 +144,8 @@ def test_search_sends_the_genre_to_jackett(monkeypatch):
         return FEED
 
     monkeypatch.setattr(jackett, "fetch_xml", fetch)
-    asyncio.run(jackett.search("", "horreur"))
-    assert sent == ["collection:SciFi_Horror"]
+    asyncio.run(jackett.search("", "series"))
+    assert sent == ["collection:classic_tv"]
 
 
 def test_search_sends_the_cleaned_query_to_jackett(monkeypatch):
@@ -179,3 +179,66 @@ def test_search_results_are_sorted_by_name_but_the_home_page_keeps_popularity_or
     # the subject asks for name order after a search; "e" matches Sintel (47 seeders) and Old Silent Film (0)
     assert _search(monkeypatch, "e") == ["Old Silent Film", "Sintel.2010.720p"]
     assert _search(monkeypatch, "") == ["Big Buck Bunny", "Sintel.2010.720p", "Old Silent Film"]
+
+
+def feed(title, guid, name, seeders):
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel><item>
+  <title>{title}</title><guid>{guid}</guid><jackettindexer id="x">{name}</jackettindexer><size>1</size>
+  <link>http://jackett:9117/dl/x/?path=1</link><torznab:attr name="seeders" value="{seeders}" />
+</item></channel></rss>"""
+
+
+@pytest.fixture
+def extras(monkeypatch):
+    """Jackett with its main indexer (None) and two extra ones: what each was asked, what each answers."""
+    monkeypatch.setattr(jackett, "EXTRA", ["pub1", "pub2"])
+    fake = type("Fake", (), {})()
+    fake.asked = []
+    fake.answer = {None: FEED, "pub1": feed("Metropolis 1927", "g1", "Public One", 9), "pub2": feed("Metropolis 1927 HD", "g2", "Public Two", 30)}
+
+    async def fetch(q, indexer=None):
+        fake.asked.append((indexer, q))
+        if isinstance(fake.answer[indexer], Exception):
+            raise fake.answer[indexer]
+        return fake.answer[indexer]
+
+    monkeypatch.setattr(jackett, "fetch_xml", fetch)
+    return fake
+
+
+def test_the_extra_indexers_are_asked_in_plain_words_next_to_the_main_one(extras):
+    found = asyncio.run(jackett.search("metropolis"))
+    assert set(extras.asked) == {(None, "metropolis"), ("pub1", "metropolis"), ("pub2", "metropolis")}
+    assert [(r["title"], r["provider"]) for r in found] == [("Metropolis 1927", "Public One"), ("Metropolis 1927 HD", "Public Two")]
+
+
+def test_the_home_page_adds_the_latest_of_the_extra_indexers(extras):
+    found = asyncio.run(jackett.search(""))
+    assert (None, "collection:feature_films") in extras.asked and ("pub1", "") in extras.asked and ("pub2", "") in extras.asked
+    assert {"Public One", "Public Two"} <= {r["provider"] for r in found}
+    assert [r["seeders"] for r in found] == sorted((r["seeders"] for r in found), reverse=True)
+
+
+def test_a_genre_row_is_an_archive_query_so_only_the_main_indexer_gets_it(extras):
+    asyncio.run(jackett.search("", "series"))
+    assert extras.asked == [(None, "collection:classic_tv")]
+
+
+def test_the_raw_lucene_queries_only_go_to_the_main_indexer(extras):
+    asyncio.run(jackett.lucene('title:"Sintel"'))
+    assert extras.asked == [(None, 'title:"Sintel"')]
+
+
+def test_an_indexer_that_fails_does_not_hide_the_others(extras):
+    extras.answer["pub1"] = OSError("down")
+    assert [r["title"] for r in asyncio.run(jackett.search("metropolis"))] == ["Metropolis 1927 HD"]
+    extras.answer[None] = OSError("down")
+    assert [r["title"] for r in asyncio.run(jackett.search("metropolis"))] == ["Metropolis 1927 HD"]  # even the main one
+
+
+def test_the_search_fails_only_when_every_indexer_does(extras):
+    for indexer in extras.answer:
+        extras.answer[indexer] = OSError("down")
+    with pytest.raises(jackett.JackettError):
+        asyncio.run(jackett.search("metropolis"))

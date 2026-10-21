@@ -16,13 +16,14 @@ USER = {
     "username": "Ada_L",
     "first_name": "Ada",
     "last_name": "Lovelace",
-    "password": "correct horse 42",
+    "password": "Correct horse 42!",
 }
 
 
 @pytest.fixture(autouse=True)
 def fresh_caches():
     sources._cache.clear()
+    sources._down_until = 0
     finder._cache.clear()
     movies._audio_cache.clear()
 

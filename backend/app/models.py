@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import JSON, BigInteger, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -19,6 +19,20 @@ class User(Base):
     language: Mapped[str] = mapped_column(String(5), default="en")
     avatar_url: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    # a row of its own, not a column: the tables are created at startup, never altered
+    welcome: Mapped["Welcomed | None"] = relationship(lazy="joined", cascade="all, delete-orphan")
+
+    @property
+    def welcomed(self):
+        return self.welcome is not None
+
+
+class Welcomed(Base):
+    """A member who went through the first-login page (picture and username): it is shown once per account."""
+
+    __tablename__ = "welcomed"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
 
 
 class OAuthAccount(Base):
@@ -100,6 +114,29 @@ class Watched(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id", ondelete="CASCADE"), primary_key=True)
     watched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class Progress(Base):
+    """Where a member is in a movie: the player reports it every few seconds ("continue watching" shows a bar)."""
+
+    __tablename__ = "progress"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id", ondelete="CASCADE"), primary_key=True)
+    position: Mapped[float] = mapped_column(Float)  # seconds
+    duration: Mapped[float] = mapped_column(Float)  # seconds
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class Bookmark(Base):
+    """A film a member put in "my list" or in their favorites."""
+
+    __tablename__ = "bookmarks"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id", ondelete="CASCADE"), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(8), primary_key=True)  # list | favorite
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class ApiClient(Base):

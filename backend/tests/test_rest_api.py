@@ -114,10 +114,11 @@ def test_the_username_the_password_and_the_picture_url_can_be_changed(logged_in)
     for bad in ("javascript:alert(1)", "http://example.com/a.png", "data:image/png;base64,AAAA", "https://" + "a" * 500):
         assert logged_in.patch("/api/users/1", json={"avatar_url": bad}).status_code == 422
     assert logged_in.patch("/api/users/1", json={"password": "short"}).status_code == 422
-    assert logged_in.patch("/api/users/1", json={"password": "a brand new pass 9"}).status_code == 200
+    assert logged_in.patch("/api/users/1", json={"password": "no capital or special 9"}).status_code == 422
+    assert logged_in.patch("/api/users/1", json={"password": "A brand new pass 9!"}).status_code == 200
     other = TestClient(main.app)
     assert other.post("/api/auth/login", json={"username": "countess_a", "password": USER["password"]}).status_code == 401
-    assert other.post("/api/auth/login", json={"username": "countess_a", "password": "a brand new pass 9"}).status_code == 200
+    assert other.post("/api/auth/login", json={"username": "countess_a", "password": "A brand new pass 9!"}).status_code == 200
 
 
 def test_a_taken_username_is_a_409(logged_in, session_factory):

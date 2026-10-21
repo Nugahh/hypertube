@@ -58,6 +58,14 @@ def api(monkeypatch):
         ("2001 A Space Odyssey 1968", "2001 A Space Odyssey"),
         ("Big_Buck_Bunny [1080p] (2008)", "Big Buck Bunny"),
         ("Metropolis", "Metropolis"),
+        ("Chinatown - 1974", "Chinatown"),  # the dash that was before the year goes too
+        ("Se7en_1995", "Se7en"),
+        ("Heat.1995.1080p.BluRay.x264-GROUP", "Heat"),
+        ("The.Great.Dictator.WEB-DL.x264-YIFY", "The Great Dictator"),  # no year: the source and the codec end the name
+        ("Spider-Man.2002.720p", "Spider-Man"),  # a dash inside a name stays
+        ("Alien - Resurrection (1997) [BDRip]", "Alien - Resurrection"),
+        ("Blade.Runner.2049.2017.2160p.UHD.BluRay.REMUX", "Blade Runner 2049"),
+        ("---Nosferatu--- 1922", "Nosferatu"),
     ],
 )
 def test_clean_title_keeps_only_the_name(raw, clean):

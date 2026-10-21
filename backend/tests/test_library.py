@@ -4,8 +4,9 @@ from app import blender, jackett, tmdb
 from tests.test_movies import library, movie_id, sintel  # noqa: F401  (Jackett's sample feed + fake downloads)
 
 RATINGS = {"Tears of Steel": 8.0, "Sintel": 7.5}
-ALL = 3 + len(blender.FILMS)  # the sample feed has 3 films, plus every open movie
-YEARS = sorted(f["year"] for f in blender.FILMS)  # the feed adds one film of 2010 and two without a year
+# the sample feed has 3 films, plus every open movie; Big Buck Bunny and Sintel are in both, so each is one film with two sources
+ALL = 3 + len(blender.FILMS) - 2
+YEARS = sorted(f["year"] for f in blender.FILMS)  # the feed adds one film without a year
 
 
 @pytest.fixture(autouse=True)
@@ -39,9 +40,9 @@ def test_the_library_is_closed_to_visitors(client):
 
 
 def test_the_list_is_cut_in_pages_that_cover_everything_once(library):  # noqa: F811
-    first, second, third, beyond = (get(library, per_page=5, page=p) for p in (1, 2, 3, 4))
+    first, second, third, beyond = (get(library, per_page=4, page=p) for p in (1, 2, 3, 4))
     assert (first["total"], first["page"], first["has_more"]) == (ALL, 1, True)
-    assert (len(first["items"]), len(second["items"]), len(third["items"])) == (5, 5, ALL - 10)
+    assert (len(first["items"]), len(second["items"]), len(third["items"])) == (4, 4, ALL - 8)
     assert (second["has_more"], third["has_more"]) == (True, False)
     ids = [m["id"] for p in (first, second, third) for m in p["items"]]
     assert len(set(ids)) == ALL
@@ -56,27 +57,27 @@ def test_without_a_search_the_most_popular_come_first_and_a_search_is_sorted_by_
 
 
 def test_sorting_by_year_puts_unknown_years_last_in_both_directions(library):  # noqa: F811
-    known = sorted(YEARS + [2010], reverse=True)
-    assert [m["year"] for m in get(library, sort="year")["items"]] == known + [None, None]
-    assert [m["year"] for m in get(library, sort="year", order="asc")["items"]] == known[::-1] + [None, None]
+    known = sorted(YEARS, reverse=True)
+    assert [m["year"] for m in get(library, sort="year")["items"]] == known + [None]
+    assert [m["year"] for m in get(library, sort="year", order="asc")["items"]] == known[::-1] + [None]
 
 
 def test_sorting_and_filtering_by_rating(library, rated):  # noqa: F811
     best = get(library, sort="rating")
-    assert [m["rating"] for m in best["items"]] == [8.0, 7.5, 7.5] + [None] * (ALL - 3)
+    assert [m["rating"] for m in best["items"]] == [8.0, 7.5] + [None] * (ALL - 2)
     assert titles(get(library, min_rating=8)) == ["Tears of Steel 2012"]
-    assert len(get(library, min_rating=7)["items"]) == 3
+    assert len(get(library, min_rating=7)["items"]) == 2
 
 
 def test_filtering_by_production_year(library):  # noqa: F811
     assert sorted(m["year"] for m in get(library, year_from=2011)["items"]) == [y for y in YEARS if y >= 2011]
-    assert sorted(titles(get(library, year_to=2008))) == ["Big Buck Bunny 2008", "Elephants Dream 2006"]
-    assert sorted(m["year"] for m in get(library, year_from=2010, year_to=2012)["items"]) == [2010, 2010, 2012]
+    assert sorted(titles(get(library, year_to=2008))) == ["Big Buck Bunny", "Elephants Dream 2006"]
+    assert sorted(m["year"] for m in get(library, year_from=2010, year_to=2012)["items"]) == [2010, 2012]
 
 
-def test_the_genre_is_passed_to_the_sources(library):  # noqa: F811
-    found = titles(get(library, genre="horreur"))
-    assert "Tears of Steel 2012" in found and "Spring 2019" not in found  # the second source filters by genre too
+def test_a_fixed_row_is_passed_to_the_sources(library):  # noqa: F811
+    found = titles(get(library, genre="series"))
+    assert "Sintel.2010.720p" in found and "Tears of Steel 2012" not in found  # the open movies are not classic TV
     assert library.get("/api/library", params={"genre": "nope"}).status_code == 404
 
 

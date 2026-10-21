@@ -6,6 +6,7 @@ import re
 import time
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 
 from app.models import MovieInfo
 
@@ -13,11 +14,19 @@ API = "https://api.themoviedb.org/3"
 IMAGES = "https://image.tmdb.org/t/p/w500"
 CAST_SIZE = 8
 PAUSE = 60  # seconds before asking again about a movie TMDb failed on
+BATCH = 16  # movies looked up (and kept) at a time
 
 # movie id -> when it may be asked again. shortcut: kept in memory, a restart forgets it; fine for a pause this short
 _retry_after = {}
 
-_TAIL = re.compile(r"\b(?:19|20)\d{2}\b|\b(?:480|576|720|1080|2160)p\b", re.I)
+_YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+# what a release name adds after the title: the resolution, the source, the codec
+_TAGS = re.compile(
+    r"\b(?:(?:480|576|720|1080|2160)[pi]|4k|uhd|blu ?ray|bd ?rip|br ?rip|dvd ?rip|dvd ?scr|web ?rip|web[ -]?dl|hd ?rip|hdtv|hd ?cam|remux"
+    r"|x ?264|x ?265|h ?264|h ?265|hevc|xvid|divx)\b",
+    re.I,
+)
+_EDGE = re.compile(r"^[\s\-\u2013\u2014:,;|/+~]+|[\s\-\u2013\u2014:,;|/+~]+$")  # separators left at either end
 
 
 class TmdbError(Exception):
@@ -29,16 +38,16 @@ def _client():
 
 
 def clean_title(raw):
-    """'Sintel.2010.720p' -> 'Sintel': what a torrent calls a movie, without year, resolution or brackets."""
+    """'Heat.1995.1080p.BluRay.x264-GROUP' -> 'Heat': what a torrent calls a movie, as words: dots and underscores are
+    spaces, and the year, the resolution, the source and the codec (everything after them) are gone."""
     s = re.sub(r"[._]+", " ", raw)
     s = re.sub(r"[\[(].*?[\])]", " ", s)
-    years = [m for m in _TAIL.finditer(s)]
-    # the last year or resolution starts the tail ("2001 A Space Odyssey 1968" keeps its first 2001)
-    cut = min((m.start() for m in years if m.group()[-1] == "p"), default=len(s))
-    last_year = [m for m in years if m.group()[-1] != "p"]
-    if last_year:
-        cut = min(cut, last_year[-1].start())
-    return re.sub(r"\s+", " ", s[:cut] if cut > 0 else s).strip()
+    # the last year or the first tag starts the tail ("2001 A Space Odyssey 1968" keeps its first 2001)
+    cut = min((m.start() for m in _TAGS.finditer(s)), default=len(s))
+    years = list(_YEAR.finditer(s))
+    if years:
+        cut = min(cut, years[-1].start())
+    return _EDGE.sub("", re.sub(r"\s+", " ", s[:cut] if cut > 0 else s))
 
 
 async def _get(client, path, **params):
@@ -119,12 +128,17 @@ async def enrich(db, movies):
                 _retry_after[movie.id] = now + PAUSE
                 raise
 
-    answers = await asyncio.gather(*(ask(m) for m in todo), return_exceptions=True)
-    for movie, info in zip(todo, answers):
-        if not isinstance(info, Exception):  # a failed one is simply asked again after the pause
-            movie.info = MovieInfo(**(info or {}))  # nothing found is remembered too, as an empty row
-            db.add(movie)
-    db.commit()
+    for start in range(0, len(todo), BATCH):  # kept batch by batch: a caller that gives up halfway keeps what was done
+        batch = todo[start : start + BATCH]
+        answers = await asyncio.gather(*(ask(m) for m in batch), return_exceptions=True)
+        for movie, info in zip(batch, answers):
+            if not isinstance(info, Exception):  # a failed one is simply asked again after the pause
+                movie.info = MovieInfo(**(info or {}))  # nothing found is remembered too, as an empty row
+                db.add(movie)
+        try:
+            db.commit()
+        except IntegrityError:  # another request stored the answer for the same movie meanwhile
+            db.rollback()
 
 
 LANGUAGE_TAGS = {"fr": "fr-FR", "en": "en-US"}

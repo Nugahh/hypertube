@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 import pytest
 
@@ -29,12 +30,11 @@ def test_an_empty_query_lists_every_open_movie_and_a_miss_lists_none():
     assert blender.search("casablanca") == []
 
 
-def test_the_genre_keeps_the_matching_films():
-    assert [m["id"] for m in blender.search("", "horreur")] == ["blender:tears-of-steel", "blender:elephants-dream"]  # sci-fi
+def test_the_open_movies_are_in_the_popular_row_and_their_own_and_in_no_other_fixed_row():
     assert len(blender.search("", "blender")) == 9  # its own row
     assert len(blender.search("", "populaires")) == 9
-    assert "blender:sintel" in [m["id"] for m in blender.search("", "animation")]
-    assert blender.search("", "western") == []
+    assert blender.search("", "series") == []  # archive.org's row of classic TV
+    assert blender.search("", "crime") == []  # a TMDb genre: the films come from the database, not from this source
 
 
 def _jackett(monkeypatch, xml=FEED):
@@ -72,3 +72,63 @@ def test_results_are_sorted_by_name_when_searching(monkeypatch):
     _jackett(monkeypatch)
     titles = [r["title"].lower() for r in asyncio.run(sources.search("o"))]
     assert titles == sorted(titles)
+
+
+def _slow_jackett(monkeypatch, answered):
+    monkeypatch.setattr(sources, "SLOW", 0.05)
+
+    async def fetch(q):
+        await asyncio.sleep(0.3)
+        answered.append(q)
+        return FEED
+
+    monkeypatch.setattr(jackett, "fetch_xml", fetch)
+
+
+def test_a_slow_internet_archive_does_not_hold_back_the_open_movies(monkeypatch):
+    answered = []
+    _slow_jackett(monkeypatch, answered)
+
+    async def scenario():
+        first = await sources.search("")
+        waited_for_it = bool(answered)
+        await asyncio.sleep(0.5)  # the request was not dropped: its answer arrives and replaces the short one
+        return first, waited_for_it, await sources.search("")
+
+    first, waited_for_it, later = asyncio.run(scenario())
+    assert not waited_for_it
+    assert {r["provider"] for r in first} == {"Blender Open Movies"}
+    assert answered and len({r["provider"] for r in later}) >= 2
+
+
+def test_once_it_was_too_slow_the_internet_archive_is_not_waited_for_again_for_a_while(monkeypatch):
+    asked = []
+    monkeypatch.setattr(sources, "SLOW", 0.05)
+
+    async def fetch(q):
+        asked.append(q)
+        await asyncio.sleep(0.3)
+        return FEED
+
+    monkeypatch.setattr(jackett, "fetch_xml", fetch)
+
+    async def scenario():
+        await sources.search("")  # too slow: it is now thought to be down
+        started = time.monotonic()
+        row = await sources.search("", "populaires")  # another row of the page
+        quick = time.monotonic() - started < 0.04
+        with pytest.raises(jackett.JackettError):
+            await sources.search("casablanca")  # nothing to show without it: an error, at once
+        await asyncio.sleep(0.5)  # it finally answers: it is trusted again
+        await sources.search("", "populaires")
+        return row, quick
+
+    row, quick = asyncio.run(scenario())
+    assert quick and row and {r["provider"] for r in row} == {"Blender Open Movies"}
+    assert len(asked) == 2  # the first search, then the one made after it answered: nothing piled up in between
+
+
+def test_a_slow_internet_archive_with_nothing_else_to_show_is_an_error(monkeypatch):
+    _slow_jackett(monkeypatch, [])
+    with pytest.raises(jackett.JackettError):
+        asyncio.run(sources.search("casablanca"))

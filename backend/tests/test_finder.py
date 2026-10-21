@@ -1,8 +1,9 @@
 import asyncio
+import time
 
 import pytest
 
-from app import finder, jackett, models, tmdb
+from app import finder, jackett, models, sources, tmdb
 
 
 def result(guid, title, year=None):
@@ -143,12 +144,11 @@ def test_levels_decide_then_names(web, session_factory):
     assert titles(run(session_factory, "chaplin"))[:3] == ["Alpha Chaplin", "Zebra Chaplin", "Aaa Creator Film"]
 
 
-def test_a_genre_goes_to_archive_org_and_filters_the_open_movies(web, session_factory):
-    run(session_factory, "o", genre="horreur")
-    assert all("collection:SciFi_Horror" in q for q in web.lucene_calls)
-    hits = run(session_factory, "tears", genre="horreur")
-    assert ("Tears of Steel 2012", "title", None) in hits
-    assert "Sintel 2010" not in titles(run(session_factory, "sintel", genre="horreur"))
+def test_a_fixed_row_goes_to_archive_org_and_the_open_movies_only_belong_to_the_popular_row(web, session_factory):
+    run(session_factory, "o", genre="series")
+    assert all("collection:classic_tv" in q for q in web.lucene_calls)
+    assert "Sintel 2010" not in titles(run(session_factory, "sintel", genre="series"))
+    assert ("Sintel 2010", "title", None) in run(session_factory, "sintel", genre="populaires")
 
 
 def test_the_open_movies_row_asks_nobody_else(web, session_factory):
@@ -214,3 +214,21 @@ def test_among_people_of_that_name_the_three_best_known_are_used(web, session_fa
     run(session_factory, "smith")
     asked = [c[1] for c in web.tmdb_calls if c[0] == "filmography"]
     assert sorted(asked) == [3, 4, 5]  # the most popular, whatever the order TMDb answered in
+
+
+def test_a_slow_archive_org_does_not_hold_back_the_open_movies(web, session_factory, monkeypatch):
+    async def lucene(query):
+        await asyncio.sleep(0.5)
+        return []
+
+    monkeypatch.setattr(jackett, "lucene", lucene)
+    monkeypatch.setattr(sources, "SLOW", 0.05)
+    started = time.monotonic()
+    assert run(session_factory, "sintel") == [("Sintel 2010", "title", None)]
+    assert time.monotonic() - started < 0.4
+    assert web.tmdb_calls == []  # archive.org does not answer: asking it for more would only wait again
+    assert not finder._cache  # and this answer is not kept as if it were complete
+
+    started = time.monotonic()  # archive.org is now thought to be down: the next search does not wait for it again
+    assert run(session_factory, "sintel") == [("Sintel 2010", "title", None)]
+    assert time.monotonic() - started < 0.04
