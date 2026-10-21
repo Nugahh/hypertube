@@ -1,3 +1,6 @@
+// one provider's copy of a film
+export type Source = { id: number; provider: string; resolution: string | null; size: number; seeders: number };
+
 export type Movie = {
   id: number;
   title: string;
@@ -10,9 +13,17 @@ export type Movie = {
   cover: string | null;
   rating: number | null; // TMDb, out of 10
   watched: boolean;
+  favorite?: boolean; // the star
+  listed?: boolean; // in my list
+  played?: number | null; // how far the member is in the film, 0 to 1 (the "continue watching" row)
+  sources?: Source[]; // every provider offering this film, best first (the film's own id is the first one's)
   // for a search: why this film is in the results (a title is the plain case, the others are explained on the thumbnail)
   match?: { kind: "title" | "alias" | "director" | "creator" | "cast" | "overview" | "other"; label: string | null } | null;
 };
+
+// a film of the downloads page: what the server has of it
+export type DownloadItem = Movie & { state: "downloading" | "ready"; progress: number };
+export type Shelf = "favorite" | "list";
 
 export type Genre = { id: string; label: string; section: "films" | "series" };
 
@@ -64,10 +75,10 @@ export type PublicUser = {
   avatar_url: string | null;
 };
 
-export type User = PublicUser & { email: string; language: "en" | "fr" };
+export type User = PublicUser & { email: string; language: "en" | "fr"; welcomed: boolean };
 
 export type RegisterData = Pick<User, "email" | "username" | "first_name" | "last_name"> & { password: string };
-export type ProfileChanges = Partial<Pick<User, "email" | "first_name" | "last_name" | "language" | "avatar_url">>;
+export type ProfileChanges = Partial<Pick<User, "username" | "email" | "first_name" | "last_name" | "language" | "avatar_url" | "welcomed">>;
 
 // the UI translates by `status` (see errorText in i18n.tsx)
 export class ApiError extends Error {
@@ -89,6 +100,13 @@ const send = <T>(method: string, url: string, body?: unknown) =>
   request<T>(url, { method, body: body === undefined ? undefined : JSON.stringify(body) });
 
 export const getGenres = (signal: AbortSignal) => request<Genre[]>("/api/genres", { signal });
+export const getShelf = (kind: Shelf, signal: AbortSignal) => request<Movie[]>(`/api/bookmarks/${kind}`, { signal });
+// the player says where the member is, so the film can show a bar in "continue watching"
+export const saveProgress = (id: number, position: number, duration: number) => send<void>("PUT", `/api/movies/${id}/progress`, { position, duration });
+export const getDownloads = (signal: AbortSignal) => request<DownloadItem[]>("/api/downloads", { signal });
+export const setBookmark = (id: number, kind: Shelf, on: boolean) => send<void>(on ? "PUT" : "DELETE", `/api/movies/${id}/bookmarks/${kind}`);
+// the films the member started, the latest first (the row "continue watching")
+export const getContinue = (signal: AbortSignal) => request<Movie[]>("/api/continue", { signal });
 
 export function search(p: { q: string; genre?: string; limit?: number }, signal: AbortSignal) {
   const params = new URLSearchParams({ q: p.q });

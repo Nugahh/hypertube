@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { getAudio, streamUrl, subtitleUrl, type AudioTrack, type Movie, type MovieDetails } from "./api";
+import { getAudio, saveProgress, streamUrl, subtitleUrl, type AudioTrack, type Movie, type MovieDetails } from "./api";
 import { formatSize } from "./format";
 import { useI18n } from "./i18n";
 import { BackIcon, ExitFullscreenIcon, ForwardIcon, FullscreenIcon, MuteIcon, PauseIcon, PlayIcon, SubtitlesIcon, VolumeIcon } from "./icons";
@@ -64,6 +64,21 @@ export default function Player({ movie, details, onBack, onChanged }: {
   const position = offset + time;
   const live = useRef({ converted, offset });
   live.current = { converted, offset };
+
+  // where the member is goes to the server every 10 s while playing, and when the player closes ("continue watching")
+  const where = useRef({ id: movie.id, position: 0, total: 0, playing: false });
+  where.current = { id: movie.id, position, total, playing: !paused };
+  useEffect(() => {
+    const report = () => {
+      const w = where.current;
+      if (w.total > 0 && w.position > 5) saveProgress(w.id, w.position, w.total).catch(() => {});
+    };
+    const timer = setInterval(() => where.current.playing && report(), 10000);
+    return () => {
+      clearInterval(timer);
+      report();
+    };
+  }, [movie.id]);
 
   function toggle() {
     const v = video.current;

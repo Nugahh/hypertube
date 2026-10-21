@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { getGenres, logout, me, search, type Genre, type Movie, type User } from "./api";
+import { getContinue, getDownloads, getGenres, getShelf, logout, me, search, type Genre, type Movie, type User } from "./api";
+import AccountMenu from "./AccountMenu";
 import { Card } from "./Card";
 import AuthPage from "./AuthPage";
 import { errorText, useI18n } from "./i18n";
@@ -7,12 +8,15 @@ import { gradient, meta } from "./format";
 import LibraryGrid, { useGenreLabel } from "./LibraryGrid";
 import Members from "./Members";
 import MovieModal from "./MovieModal";
-import ProfilePage, { Avatar } from "./ProfilePage";
+import ProfileModal from "./ProfileModal";
+import { Avatar } from "./ProfilePage";
 import ResetPage from "./ResetPage";
+import Shelf from "./Shelf";
+import Welcome from "./Welcome";
 import { useApi, type State } from "./useApi";
 
-type View = "home" | "films" | "series" | "list" | "favorites" | "downloads" | "members" | "profile";
-const TABS: [Exclude<View, "profile">, string][] = [
+type View = "home" | "films" | "series" | "list" | "favorites" | "downloads" | "members";
+const TABS: [View, string][] = [
   ["home", "nav.home"],
   ["films", "nav.films"],
   ["series", "nav.series"],
@@ -60,10 +64,11 @@ function GenreRow({ genre, onSelect }: { genre: Genre; onSelect: (m: Movie) => v
   return <Row title={label(genre)} state={useMovies("", genre.id, 20)} onSelect={onSelect} />;
 }
 
-function Home({ genres, onSelect }: { genres: Genre[]; onSelect: (m: Movie) => void }) {
+function Home({ genres, round, onSelect }: { genres: Genre[]; round: number; onSelect: (m: Movie) => void }) {
   const { t } = useI18n();
   const label = useGenreLabel();
   const popular = useMovies("", "populaires", 20);
+  const resume = useApi<Movie[]>(getContinue, [], [round]); // what the member watched: it changes when a film window closes
   const hero = popular.data[0];
   const first = genres.find((g) => g.id === "populaires");
   return (
@@ -79,6 +84,7 @@ function Home({ genres, onSelect }: { genres: Genre[]; onSelect: (m: Movie) => v
         </section>
       )}
       <main className={hero ? "after-hero" : ""}>
+        {resume.data.length > 0 && <Row title={t("home.continue")} state={resume} onSelect={onSelect} />}
         <Row title={first ? label(first) : t("genre.populaires")} state={popular} onSelect={onSelect} />
         {genres.filter((g) => g.section === "films" && g.id !== "populaires").map((g) => (
           <GenreRow key={g.id} genre={g} onSelect={onSelect} />
@@ -88,47 +94,30 @@ function Home({ genres, onSelect }: { genres: Genre[]; onSelect: (m: Movie) => v
   );
 }
 
-function Films({ genres, onSelect }: { genres: Genre[]; onSelect: (m: Movie) => void }) {
+// Films and Series: the genre chips, then the grid of the chosen genre (no sort or filter bar)
+function GenreTab({ section, first, genres, onSelect }: { section: "films" | "series"; first: string; genres: Genre[]; onSelect: (m: Movie) => void }) {
   const { t } = useI18n();
   const label = useGenreLabel();
-  const [genre, setGenre] = useState("populaires");
-  const films = genres.filter((g) => g.section === "films");
-  const current = films.find((g) => g.id === genre);
+  const [genre, setGenre] = useState(first);
+  const chips = genres.filter((g) => g.section === section);
+  const current = chips.find((g) => g.id === genre);
   return (
     <main>
       <div className="chips" role="group" aria-label={t("genres.aria")}>
-        {films.map((g) => (
+        {chips.map((g) => (
           <button key={g.id} className={`chip ${g.id === genre ? "on" : ""}`} aria-pressed={g.id === genre} onClick={() => setGenre(g.id)}>
             {label(g)}
           </button>
         ))}
       </div>
-      <LibraryGrid title={current ? label(current) : t("nav.films")} genre={genre} onSelect={onSelect} />
+      <LibraryGrid title={current ? label(current) : t(`nav.${section}`)} genre={genre} filters={false} onSelect={onSelect} />
     </main>
   );
-}
-
-function Series({ genres, onSelect }: { genres: Genre[]; onSelect: (m: Movie) => void }) {
-  const label = useGenreLabel();
-  const series = genres.find((g) => g.id === "series");
-  return <main><LibraryGrid title={series ? label(series) : ""} genre="series" onSelect={onSelect} /></main>;
 }
 
 function Results({ q, genres, onSelect }: { q: string; genres: Genre[]; onSelect: (m: Movie) => void }) {
   const { t } = useI18n();
   return <main><LibraryGrid title={t("results.for", { q })} q={q} genres={genres} onSelect={onSelect} /></main>;
-}
-
-function Soon({ title }: { title: string }) {
-  const { t } = useI18n();
-  return (
-    <main>
-      <section className="row">
-        <h2>{title}</h2>
-        <p className="notice">{t("soon")}</p>
-      </section>
-    </main>
-  );
 }
 
 function Library({ user, onUserChange, onLogout }: {
@@ -139,34 +128,42 @@ function Library({ user, onUserChange, onLogout }: {
   const { t } = useI18n();
   const [q, setQ] = useState("");
   const [view, setView] = useState<View>("home");
-  const [profileId, setProfileId] = useState(user.id);
+  const [profileId, setProfileId] = useState<number | null>(null); // the member whose profile window is open
   const [selected, setSelected] = useState<Movie | null>(null);
+  const [round, setRound] = useState(0); // counts the film windows closed: "continue watching" is asked again
+  const closeMovie = () => {
+    setSelected(null);
+    setRound((n) => n + 1);
+  };
   const genres = useApi<Genre[]>(getGenres, [], []);
   const searching = q.trim() !== "";
 
+  // Escape closes the window on top: the profile, else the movie sheet
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setSelected(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (profileId !== null) setProfileId(null);
+      else closeMovie();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [profileId]);
 
-  const openProfile = (id: number) => {
-    setSelected(null);
-    setQ("");
-    setProfileId(id);
-    setView("profile");
-  };
+  const shelf = (title: string, empty: string, load: (signal: AbortSignal) => Promise<Movie[]>) => (
+    <Shelf key={view} title={title} empty={empty} load={load} round={round} onSelect={setSelected} />
+  );
 
   const page = () => {
     if (searching) return <Results q={q.trim()} genres={genres.data} onSelect={setSelected} />;
-    if (view === "profile") return <ProfilePage id={profileId} me={user} onUpdate={onUserChange} />;
-    if (view === "members") return <Members onOpen={openProfile} />;
+    if (view === "members") return <Members onOpen={setProfileId} />;
+    if (view === "list") return shelf(t("nav.list"), t("shelf.list.empty"), (s) => getShelf("list", s));
+    if (view === "favorites") return shelf(t("nav.favorites"), t("shelf.favorites.empty"), (s) => getShelf("favorite", s));
+    if (view === "downloads") return shelf(t("nav.downloads"), t("shelf.downloads.empty"), getDownloads);
     if (genres.error) return <main><p className="notice" role="alert">{errorText(t, genres.error)}</p></main>;
     switch (view) {
-      case "home": return <Home genres={genres.data} onSelect={setSelected} />;
-      case "films": return <Films genres={genres.data} onSelect={setSelected} />;
-      case "series": return <Series genres={genres.data} onSelect={setSelected} />;
-      default: return <Soon title={t(TABS.find(([v]) => v === view)![1])} />;
+      case "home": return <Home genres={genres.data} round={round} onSelect={setSelected} />;
+      case "films": return <GenreTab key="films" section="films" first="populaires" genres={genres.data} onSelect={setSelected} />;
+      default: return <GenreTab key="series" section="series" first="series" genres={genres.data} onSelect={setSelected} />;
     }
   };
 
@@ -195,11 +192,7 @@ function Library({ user, onUserChange, onLogout }: {
               onChange={(e) => setQ(e.target.value)}
             />
           </label>
-          <button className="who" title={t("profile.open")} onClick={() => openProfile(user.id)}>
-            <Avatar user={user} size={30} />
-            <span>{user.username}</span>
-          </button>
-          <button className="btn-link" onClick={onLogout}>{t("logout")}</button>
+          <AccountMenu user={user} onAccount={() => setProfileId(user.id)} onLogout={onLogout} />
         </div>
       </header>
 
@@ -210,7 +203,8 @@ function Library({ user, onUserChange, onLogout }: {
         <span>{t("footer.legal")} · {t("footer.credit")}</span>
       </footer>
 
-      {selected && <MovieModal key={selected.id} movie={selected} me={user} onClose={() => setSelected(null)} onProfile={openProfile} />}
+      {selected && <MovieModal key={selected.id} movie={selected} me={user} onClose={closeMovie} onProfile={setProfileId} />}
+      {profileId !== null && <ProfileModal id={profileId} me={user} onUpdate={onUserChange} onClose={() => setProfileId(null)} />}
     </>
   );
 }
@@ -260,11 +254,7 @@ export default function App() {
   }
   if (user === undefined) return null;
   if (user === null) return <AuthPage onAuth={setUser} notice={notice} error={oauthError ? t(`oauth.${oauthError}`) : undefined} />;
-  return (
-    <Library
-      user={user}
-      onUserChange={setUser}
-      onLogout={() => logout().finally(() => setUser(null))}
-    />
-  );
+  const signOut = () => logout().finally(() => setUser(null));
+  if (!user.welcomed) return <Welcome me={user} onDone={setUser} onLogout={signOut} />;
+  return <Library user={user} onUserChange={setUser} onLogout={signOut} />;
 }

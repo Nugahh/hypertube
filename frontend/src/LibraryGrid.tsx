@@ -20,11 +20,12 @@ export function useGenreLabel() {
 const year = (v: string) => (/^\d{4}$/.test(v) ? Number(v) : undefined);
 
 // the library as a grid that keeps loading the next page while the member scrolls (no "next page" link), with sort and filters
-export default function LibraryGrid({ title, q = "", genre, genres, onSelect }: {
+export default function LibraryGrid({ title, q = "", genre, genres, filters = true, onSelect }: {
   title: string;
   q?: string;
   genre?: string; // fixed by the parent (genre chips, series)
   genres?: Genre[]; // when given, a genre filter is offered
+  filters?: boolean; // the sort and filter bar (the genre rows of Films and Series go without)
   onSelect: (m: Movie) => void;
 }) {
   const { t } = useI18n();
@@ -58,7 +59,7 @@ export default function LibraryGrid({ title, q = "", genre, genres, onSelect }: 
   return (
     <section className="row">
       <h2>{title}</h2>
-      <div className="filters">
+      {filters && <div className="filters">
         <label>
           {t("lib.sort")}
           <select value={sort ?? (searching ? "relevance" : "popularity")} onChange={(e) => setSort(e.target.value as Sort)}>
@@ -89,7 +90,7 @@ export default function LibraryGrid({ title, q = "", genre, genres, onSelect }: 
           </label>
         )}
         {!pages.error && <span className="count">{t("lib.total", { n: pages.total })}</span>}
-      </div>
+      </div>}
       {pages.error ? <p className="notice" role="alert">{errorText(t, pages.error)}</p> : null}
       {!pages.loading && !pages.error && pages.items.length === 0 && <p className="notice">{t("empty")}</p>}
       <div className="grid">{pages.items.map((m) => <Card key={m.id} movie={m} onSelect={onSelect} />)}</div>
