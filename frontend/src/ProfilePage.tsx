@@ -1,7 +1,7 @@
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import { createClient, deleteClient, getUser, listClients, updateProfile, uploadAvatar, type NewApiClient, type PublicUser, type User } from "./api";
 import { avatarPath, useDefaultAvatars } from "./avatars";
-import { Field } from "./AuthPage";
+import { Field, validUsername } from "./AuthPage";
 import { errorText, LANGS, useI18n } from "./i18n";
 import { useApi } from "./useApi";
 
@@ -24,7 +24,7 @@ const MAX_AVATAR = 2 * 1024 * 1024; // same limit as the backend
 
 function OwnProfile({ me, onUpdate }: { me: User; onUpdate: (u: User) => void }) {
   const { t } = useI18n();
-  const [form, setForm] = useState({ email: me.email, first_name: me.first_name, last_name: me.last_name, language: me.language });
+  const [form, setForm] = useState({ username: me.username, email: me.email, first_name: me.first_name, last_name: me.last_name, language: me.language });
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const defaults = useDefaultAvatars();
@@ -44,6 +44,7 @@ function OwnProfile({ me, onUpdate }: { me: User; onUpdate: (u: User) => void })
 
   const save = (e: FormEvent) => {
     e.preventDefault();
+    if (!validUsername(form.username)) return setMessage({ ok: false, text: t("v.username") });
     return run(() => updateProfile(me.id, form));
   };
 
@@ -86,6 +87,7 @@ function OwnProfile({ me, onUpdate }: { me: User; onUpdate: (u: User) => void })
           ))}
         </div>
       )}
+      <Field label={t("auth.username")} autoComplete="username" value={form.username} onChange={set("username")} />
       <Field label={t("auth.email")} type="email" autoComplete="email" value={form.email} onChange={set("email")} />
       <div className="field-row">
         <Field label={t("auth.first")} autoComplete="given-name" value={form.first_name} onChange={set("first_name")} />
@@ -160,15 +162,15 @@ function ApiAccess() {
   );
 }
 
-// own profile: editable. Someone else's: name and picture only (the email stays private, server side)
+// own profile: editable. Someone else's: name and picture only (the email stays private, server side).
+// It is shown in a window over the page (ProfileModal), not as a page of its own.
 export default function ProfilePage({ id, me, onUpdate }: { id: number; me: User; onUpdate: (u: User) => void }) {
   const { t } = useI18n();
   const own = id === me.id;
   const other = useApi<PublicUser | null>((signal) => (own ? Promise.resolve(null) : getUser(id, signal)), null, [id, own]);
 
   return (
-    <main>
-      <section className="row profile">
+    <section className="profile">
         {own ? (
           <>
             <OwnProfile me={me} onUpdate={onUpdate} />
@@ -189,7 +191,6 @@ export default function ProfilePage({ id, me, onUpdate }: { id: number; me: User
         ) : (
           <p className="notice">{t("loading")}</p>
         )}
-      </section>
-    </main>
+    </section>
   );
 }

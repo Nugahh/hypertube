@@ -8,7 +8,9 @@ type Form = { email: string; username: string; first_name: string; last_name: st
 
 const EMPTY: Form = { email: "", username: "", first_name: "", last_name: "", password: "", confirm: "" };
 
-export const validPassword = (p: string) => p.length >= 8 && /[a-zA-Z]/.test(p) && /\d/.test(p);
+// same rule as the backend: 8 to 128 characters with a capital letter, a digit and a special one (neither letter, digit nor space)
+export const validPassword = (p: string) => p.length >= 8 && p.length <= 128 && /\p{Lu}/u.test(p) && /\d/.test(p) && /[^\p{L}\p{N}\s]/u.test(p);
+export const validUsername = (u: string) => /^[a-zA-Z0-9_]{3,30}$/.test(u);
 
 export function Field(p: { label: string; value: string; onChange: (e: ChangeEvent<HTMLInputElement>) => void; type?: string; autoComplete?: string }) {
   return (
@@ -49,7 +51,7 @@ export default function AuthPage({ onAuth, notice, error: initialError }: { onAu
   function validate(): string | null {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email)) return t("v.email");
     if (mode === "forgot") return null;
-    if (!/^[a-zA-Z0-9_]{3,30}$/.test(form.username)) return t("v.username");
+    if (!validUsername(form.username)) return t("v.username");
     if (!form.first_name.trim() || !form.last_name.trim()) return t("v.names");
     if (!validPassword(form.password)) return t("v.password");
     if (form.password !== form.confirm) return t("v.mismatch");
@@ -107,6 +109,7 @@ export default function AuthPage({ onAuth, notice, error: initialError }: { onAu
               </div>
             )}
             <Field label={t("auth.password")} type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} value={form.password} onChange={set("password")} />
+            {mode === "register" && <p className="auth-help">{t("v.password")}</p>}
             {mode === "register" && <Field label={t("auth.confirm")} type="password" autoComplete="new-password" value={form.confirm} onChange={set("confirm")} />}
           </>
         )}

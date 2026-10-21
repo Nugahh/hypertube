@@ -65,7 +65,7 @@ def test_only_the_member_who_imported_a_subtitle_deletes_it(library):  # noqa: F
     mid = sintel(library)
     ref = upload(library, mid).json()["ref"]
     other = TestClient(main.app)
-    other.post("/api/auth/register", json={"email": "b@example.com", "username": "bob", "first_name": "B", "last_name": "B", "password": "builder pass 1"})
+    other.post("/api/auth/register", json={"email": "b@example.com", "username": "bob", "first_name": "B", "last_name": "B", "password": "Builder pass 1!"})
     assert other.delete(f"/api/movies/{mid}/subtitles/{ref}").status_code == 403
     assert [s["mine"] for s in other.get(f"/api/movies/{mid}/subtitles").json()] == [False]
     assert library.delete(f"/api/movies/{mid}/subtitles/{ref}").status_code == 204

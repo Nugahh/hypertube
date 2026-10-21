@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.auth import Email, Name, Password, UserOut, Username, current_user
 from app.db import get_db
 from app import security
-from app.models import User
+from app.models import User, Welcomed
 
 AVATAR_DIR = Path(os.getenv("AVATAR_DIR", "./data/avatars"))
 MAX_AVATAR_BYTES = 2 * 1024 * 1024
@@ -63,6 +63,7 @@ class UserPatch(BaseModel):
     first_name: Name | None = None
     last_name: Name | None = None
     language: Literal["en", "fr"] | None = None
+    welcomed: Literal[True] | None = None  # the first-login page is done; it cannot be undone
 
 
 @router.get("/users", response_model=list[UserBrief])
@@ -84,6 +85,8 @@ def patch_user(user_id: int, data: UserPatch, me: User = Depends(current_user), 
     if user_id != me.id:
         raise HTTPException(status_code=403, detail="You can only edit your own profile")
     changes = data.model_dump(exclude_none=True)
+    if changes.pop("welcomed", False) and not me.welcomed:
+        me.welcome = Welcomed()
     if "password" in changes:
         me.password_hash = security.hash_password(changes.pop("password"))
     for field, value in changes.items():

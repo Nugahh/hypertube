@@ -23,7 +23,7 @@ def login(client, password):
     return client.post("/api/auth/login", json={"username": USER["username"], "password": password})
 
 
-def reset(client, token, password="brand new pass 7"):
+def reset(client, token, password="Brand new pass 7!"):
     return client.post("/api/auth/reset", json={"token": token, "password": password})
 
 
@@ -63,7 +63,7 @@ def test_the_reset_email_follows_the_language_of_the_account(account, outbox, se
 def test_the_link_sets_a_new_password(account, outbox):
     forgot(account)
     assert reset(account, token_from(outbox[0][2])).status_code == 204
-    assert login(account, "brand new pass 7").status_code == 200
+    assert login(account, "Brand new pass 7!").status_code == 200
     assert login(account, USER["password"]).status_code == 401
 
 
@@ -71,8 +71,8 @@ def test_the_link_works_only_once(account, outbox):
     forgot(account)
     token = token_from(outbox[0][2])
     assert reset(account, token).status_code == 204
-    assert reset(account, token, "another pass 99").status_code == 400
-    assert login(account, "brand new pass 7").status_code == 200
+    assert reset(account, token, "Another pass 99!").status_code == 400
+    assert login(account, "Brand new pass 7!").status_code == 200
 
 
 def test_an_expired_link_is_refused(account, outbox):

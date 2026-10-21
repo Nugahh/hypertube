@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 from app import main, models
 
-BOB = {"email": "bob@example.com", "username": "bob", "first_name": "Bob", "last_name": "Builder", "password": "builder pass 1"}
+BOB = {"email": "bob@example.com", "username": "bob", "first_name": "Bob", "last_name": "Builder", "password": "Builder pass 1!"}
 
 
 @pytest.fixture

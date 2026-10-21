@@ -22,6 +22,7 @@ def test_register_returns_the_account_without_its_password_and_logs_in(client):
         "last_name": "Lovelace",
         "language": "en",
         "avatar_url": None,
+        "welcomed": False,
     }
     assert client.get("/api/auth/me").json()["username"] == "ada_l"
 
@@ -45,6 +46,9 @@ def test_the_session_cookie_is_httponly_and_samesite(client):
         {"password": "short1"},  # under 8 characters
         {"password": "onlyletters"},  # no digit
         {"password": "12345678"},  # no letter
+        {"password": "all lower 9!"},  # no capital letter
+        {"password": "No Special 9"},  # no special character (a space is not one)
+        {"password": "No Digit here!"},
         {"email": "not-an-email"},
         {"username": "a"},  # too short
         {"username": "bad name!"},  # characters outside a-z 0-9 _
@@ -54,6 +58,18 @@ def test_the_session_cookie_is_httponly_and_samesite(client):
 )
 def test_register_rejects_invalid_fields(client, changes):
     assert register(client, **changes).status_code == 422
+
+
+@pytest.mark.parametrize("password", ["Str0ng!pass", "Un_derscore9", "Ünïcode 9é€", "a Very-long pass 1" * 5])
+def test_register_accepts_a_password_with_a_capital_a_digit_and_a_special_character(client, password):
+    assert register(client, password=password).status_code == 201
+
+
+def test_an_account_with_an_older_weaker_password_can_still_log_in(client, session_factory):
+    with session_factory() as s:
+        s.add(models.User(email="old@example.com", username="old_timer", first_name="O", last_name="T", password_hash=security.hash_password("weak legacy 1")))
+        s.commit()
+    assert client.post("/api/auth/login", json={"username": "old_timer", "password": "weak legacy 1"}).status_code == 200
 
 
 def test_register_rejects_a_taken_email_or_username_whatever_the_case(client):

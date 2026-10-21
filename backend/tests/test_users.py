@@ -86,10 +86,35 @@ def test_patching_someone_else_is_forbidden_and_changes_nothing(bob):
 
 @pytest.mark.parametrize(
     "body",
-    [{"language": "xx"}, {"email": "nope"}, {"first_name": "   "}, {"last_name": "x" * 51}],
+    [{"language": "xx"}, {"email": "nope"}, {"first_name": "   "}, {"last_name": "x" * 51}, {"username": "a b"}, {"username": "ab"}, {"welcomed": False}],
 )
 def test_patch_rejects_invalid_values(bob, body):
     assert bob.patch("/api/users/1", json=body).status_code == 422
+
+
+def test_patch_changes_the_username_and_the_login_follows(bob):
+    res = bob.patch("/api/users/1", json={"username": " Ada_New "})
+    assert res.status_code == 200
+    assert res.json()["username"] == "ada_new"
+    bob.post("/api/auth/logout")
+    assert bob.post("/api/auth/login", json={"username": "ada_new", "password": USER["password"]}).status_code == 200
+
+
+def test_patch_rejects_a_username_already_used_whatever_its_case(bob):
+    assert bob.patch("/api/users/1", json={"username": "BOB"}).status_code == 409
+    assert bob.get("/api/auth/me").json()["username"] == "ada_l"
+
+
+def test_a_new_account_has_not_seen_the_welcome_page(logged_in):
+    assert logged_in.get("/api/auth/me").json()["welcomed"] is False
+
+
+def test_the_welcome_page_is_done_once_and_for_that_member_only(bob, session_factory):
+    res = bob.patch("/api/users/1", json={"username": "ada_2", "welcomed": True})
+    assert res.json()["welcomed"] is True
+    assert bob.get("/api/auth/me").json()["welcomed"] is True
+    with session_factory() as s:
+        assert s.get(models.User, 2).welcomed is False
 
 
 def test_patch_rejects_an_email_already_used_by_someone_else(bob):

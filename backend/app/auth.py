@@ -20,8 +20,9 @@ router = APIRouter(prefix="/api/auth")
 
 
 def _check_password(v):
-    if not (8 <= len(v) <= 128 and re.search(r"[A-Za-z]", v) and re.search(r"\d", v)):
-        raise ValueError("8 to 128 characters with at least one letter and one digit")
+    # special = neither a letter, a digit nor a space (an underscore counts)
+    if not (8 <= len(v) <= 128 and any(c.isupper() for c in v) and re.search(r"\d", v) and re.search(r"[^\w\s]|_", v)):
+        raise ValueError("8 to 128 characters with at least one capital letter, one digit and one special character")
     return v
 
 
@@ -78,6 +79,7 @@ class UserOut(BaseModel):
     last_name: str
     language: str
     avatar_url: str | None
+    welcomed: bool  # false until the member has been through the first-login page
 
 
 def start_session(response, user):
