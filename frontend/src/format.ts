@@ -18,3 +18,11 @@ export const formatSize = (n: number) =>
   n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${Math.round(n / 1e6)} MB` : `${Math.max(1, Math.round(n / 1e3))} kB`;
 export const initials = (name: string) => name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 export const meta = (m: Movie) => [m.year, m.resolution, formatSize(m.size)].filter(Boolean).join(" · ");
+
+// 3725 -> "1:02:05", 75 -> "1:15"
+export const clock = (s: number) => {
+  s = Math.max(0, Math.floor(s));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `${h ? `${h}:` : ""}${h ? String(m).padStart(2, "0") : m}:${String(s % 60).padStart(2, "0")}`;
+};

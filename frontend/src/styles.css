@@ -60,11 +60,14 @@ footer{border-top:1px solid var(--line);padding:22px 4vw;color:var(--muted);font
 .overlay{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.65);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:5vh 16px}
 .modal{position:relative;width:min(720px,100%);background:var(--surface);border-radius:6px;overflow:hidden;box-shadow:var(--shadow)}
 .close{position:absolute;top:14px;right:14px;z-index:5;width:38px;height:38px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:16px}
-.m-hero{position:relative;height:280px;color:#fff;display:flex;align-items:flex-end;padding:26px 30px;background-size:cover;background-position:center}
-.m-hero::after{content:"";position:absolute;inset:0;background:linear-gradient(0deg,var(--surface) 0%,transparent 70%)}
-.m-hero h2{position:relative;z-index:2;font-size:30px;font-weight:900;text-shadow:0 4px 20px rgba(0,0,0,.6)}
+.m-top{display:flex;gap:26px;padding:30px 30px 10px}
+.m-poster{flex:none;width:190px;aspect-ratio:2/3;border-radius:6px;background-size:cover;background-position:center;box-shadow:var(--shadow)}
+.m-info{flex:1;min-width:0}
+.m-info h2{font-size:28px;font-weight:900;line-height:1.15;margin-bottom:10px;padding-right:44px}
 .m-body{padding:6px 30px 30px}
+@media(max-width:640px){.m-top{flex-direction:column}.m-poster{width:min(60%,190px);align-self:center}.m-info h2{padding-right:0}}
 .m-body h3{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:20px 0 10px}
+.m-body .chips{padding:0 0 14px}
 .prov{display:flex;align-items:center;gap:14px;background:var(--surface2);border-radius:6px;padding:12px 14px}
 .logo-sq{width:42px;height:42px;border-radius:6px;background:#fff;color:#000;font-weight:900;display:flex;align-items:center;justify-content:center;font-size:14px;flex:none}
 .prov+.prov{margin-top:8px}
@@ -136,7 +139,7 @@ a.btn-link{color:inherit;text-decoration:none;text-align:center;display:block}
 }
 
 /* LIBRARY CONTROLS */
-.m-actions{display:flex;gap:10px;margin:14px 0 4px}
+.m-actions{display:flex;gap:10px;margin:14px 0 14px}
 .mark{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--line);border-radius:4px;font-size:14px;font-weight:600}
 .mark:hover{background:var(--surface2)}
 .mark.on{border-color:var(--accent);color:#fff;background:rgba(229,9,20,.18)}

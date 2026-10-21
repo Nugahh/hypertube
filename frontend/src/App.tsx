@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { getContinue, getDownloads, getGenres, getShelf, logout, me, search, type Genre, type Movie, type User } from "./api";
+import { getContinue, getDownloads, getShelf, logout, me, type Movie, type User } from "./api";
 import AccountMenu from "./AccountMenu";
 import { Card } from "./Card";
+import Catalog from "./Catalog";
 import AuthPage from "./AuthPage";
 import { errorText, useI18n } from "./i18n";
-import { gradient, meta } from "./format";
-import LibraryGrid, { useGenreLabel } from "./LibraryGrid";
 import Members from "./Members";
 import MovieModal from "./MovieModal";
 import ProfileModal from "./ProfileModal";
@@ -25,10 +24,6 @@ const TABS: [View, string][] = [
   ["downloads", "nav.downloads"],
   ["members", "nav.members"],
 ];
-
-// typing is debounced; rows and genre filters load right away
-const useMovies = (q: string, genre?: string, limit?: number) =>
-  useApi<Movie[]>((signal) => search({ q, genre, limit }, signal), [], [q, genre, limit], q ? 350 : 0);
 
 function Status({ state, children }: { state: State<Movie[]>; children: ReactNode }) {
   const { t } = useI18n();
@@ -59,65 +54,16 @@ function Row({ title, state, onSelect }: { title: string; state: State<Movie[]>;
   );
 }
 
-function GenreRow({ genre, onSelect }: { genre: Genre; onSelect: (m: Movie) => void }) {
-  const label = useGenreLabel();
-  return <Row title={label(genre)} state={useMovies("", genre.id, 20)} onSelect={onSelect} />;
-}
-
-function Home({ genres, round, onSelect }: { genres: Genre[]; round: number; onSelect: (m: Movie) => void }) {
+// the films the member started, then what TMDb lists (a film opens on the copies the providers have of it)
+function Home({ round, onSelect }: { round: number; onSelect: (m: Movie) => void }) {
   const { t } = useI18n();
-  const label = useGenreLabel();
-  const popular = useMovies("", "populaires", 20);
   const resume = useApi<Movie[]>(getContinue, [], [round]); // what the member watched: it changes when a film window closes
-  const hero = popular.data[0];
-  const first = genres.find((g) => g.id === "populaires");
-  return (
-    <>
-      {hero && (
-        <section className="hero" style={{ backgroundImage: gradient(hero.id) }}>
-          <div className="hero-in">
-            <span className="tag">{t("hero.tag", { provider: hero.provider })}</span>
-            <h1>{hero.title}</h1>
-            <div className="meta">{meta(hero)}</div>
-            <button className="btn primary" onClick={() => onSelect(hero)}>ⓘ {t("hero.details")}</button>
-          </div>
-        </section>
-      )}
-      <main className={hero ? "after-hero" : ""}>
-        {resume.data.length > 0 && <Row title={t("home.continue")} state={resume} onSelect={onSelect} />}
-        <Row title={first ? label(first) : t("genre.populaires")} state={popular} onSelect={onSelect} />
-        {genres.filter((g) => g.section === "films" && g.id !== "populaires").map((g) => (
-          <GenreRow key={g.id} genre={g} onSelect={onSelect} />
-        ))}
-      </main>
-    </>
-  );
-}
-
-// Films and Series: the genre chips, then the grid of the chosen genre (no sort or filter bar)
-function GenreTab({ section, first, genres, onSelect }: { section: "films" | "series"; first: string; genres: Genre[]; onSelect: (m: Movie) => void }) {
-  const { t } = useI18n();
-  const label = useGenreLabel();
-  const [genre, setGenre] = useState(first);
-  const chips = genres.filter((g) => g.section === section);
-  const current = chips.find((g) => g.id === genre);
   return (
     <main>
-      <div className="chips" role="group" aria-label={t("genres.aria")}>
-        {chips.map((g) => (
-          <button key={g.id} className={`chip ${g.id === genre ? "on" : ""}`} aria-pressed={g.id === genre} onClick={() => setGenre(g.id)}>
-            {label(g)}
-          </button>
-        ))}
-      </div>
-      <LibraryGrid title={current ? label(current) : t(`nav.${section}`)} genre={genre} filters={false} onSelect={onSelect} />
+      {resume.data.length > 0 && <Row title={t("home.continue")} state={resume} onSelect={onSelect} />}
+      <Catalog onSelect={onSelect} />
     </main>
   );
-}
-
-function Results({ q, genres, onSelect }: { q: string; genres: Genre[]; onSelect: (m: Movie) => void }) {
-  const { t } = useI18n();
-  return <main><LibraryGrid title={t("results.for", { q })} q={q} genres={genres} onSelect={onSelect} /></main>;
 }
 
 function Library({ user, onUserChange, onLogout }: {
@@ -135,7 +81,6 @@ function Library({ user, onUserChange, onLogout }: {
     setSelected(null);
     setRound((n) => n + 1);
   };
-  const genres = useApi<Genre[]>(getGenres, [], []);
   const searching = q.trim() !== "";
 
   // Escape closes the window on top: the profile, else the movie sheet
@@ -154,16 +99,15 @@ function Library({ user, onUserChange, onLogout }: {
   );
 
   const page = () => {
-    if (searching) return <Results q={q.trim()} genres={genres.data} onSelect={setSelected} />;
+    if (searching) return <main><Catalog q={q.trim()} onSelect={setSelected} /></main>;
     if (view === "members") return <Members onOpen={setProfileId} />;
     if (view === "list") return shelf(t("nav.list"), t("shelf.list.empty"), (s) => getShelf("list", s));
     if (view === "favorites") return shelf(t("nav.favorites"), t("shelf.favorites.empty"), (s) => getShelf("favorite", s));
     if (view === "downloads") return shelf(t("nav.downloads"), t("shelf.downloads.empty"), getDownloads);
-    if (genres.error) return <main><p className="notice" role="alert">{errorText(t, genres.error)}</p></main>;
     switch (view) {
-      case "home": return <Home genres={genres.data} round={round} onSelect={setSelected} />;
-      case "films": return <GenreTab key="films" section="films" first="populaires" genres={genres.data} onSelect={setSelected} />;
-      default: return <GenreTab key="series" section="series" first="series" genres={genres.data} onSelect={setSelected} />;
+      case "home": return <Home round={round} onSelect={setSelected} />;
+      case "films": return <main><Catalog key="films" kind="movie" onSelect={setSelected} /></main>;
+      default: return <main><Catalog key="series" kind="tv" onSelect={setSelected} /></main>;
     }
   };
 

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { getMovie, setBookmark, startDownload, type Movie, type MovieDetails, type Shelf, type User } from "./api";
+import { getMovie, setBookmark, startDownload, type Movie, type MovieDetails, type Shelf, type Tier, type User } from "./api";
 import Comments from "./Comments";
-import { formatSize, initials, meta, poster } from "./format";
+import { clock, formatSize, initials, meta, poster } from "./format";
 import { errorText, useI18n } from "./i18n";
 import Player from "./Player";
+
+const TIERS: Tier[] = ["4K", "1080p", "720p"]; // the order of the quality tabs
 
 // the server's view of one copy of the movie (nothing / downloading / downloaded), refreshed while the window is open
 function useDetails(id: number) {
@@ -26,7 +28,7 @@ function useDetails(id: number) {
 export default function MovieModal({ movie, me, onClose, onProfile }: { movie: Movie; me: User; onClose: () => void; onProfile: (id: number) => void }) {
   const { t } = useI18n();
   const [playing, setPlaying] = useState(false);
-  const [copy, setCopy] = useState(movie.id); // the provider's copy that is played or downloaded
+  const [copy, setCopy] = useState(movie.resume?.id ?? movie.id); // the provider's copy that is played or downloaded: the one the member was watching
   const [details, refresh] = useDetails(copy);
   const [error, setError] = useState<string | null>(null);
   const [marks, setMarks] = useState({ favorite: !!movie.favorite, list: !!movie.listed }); // the star and the +
@@ -57,46 +59,56 @@ export default function MovieModal({ movie, me, onClose, onProfile }: { movie: M
   }
 
   const sources = movie.sources?.length ? movie.sources : [movie];
-  if (playing) return <Player movie={{ ...movie, id: copy }} details={details} onBack={stopPlaying} onChanged={refresh} />;
+  const tiers = TIERS.filter((x) => sources.some((s) => s.tier === x)); // a tab per quality the providers have
+  const [tier, setTier] = useState<Tier>(() => sources.find((s) => s.id === copy)?.tier ?? tiers[0]); // opens on the quality of the copy in use
+  if (playing) return <Player movie={{ ...movie, id: copy }} details={details} resumeAt={movie.resume?.position} onBack={stopPlaying} onChanged={refresh} />;
   return (
     <div className="overlay" onClick={onClose}>
       <div className="modal" role="dialog" aria-modal="true" aria-label={movie.title} onClick={(e) => e.stopPropagation()}>
         <button className="close" onClick={onClose} aria-label={t("modal.close")}>✕</button>
-        <div className="m-hero" style={poster(movie)}>
-          <h2>{movie.title}</h2>
+        <div className="m-top">
+          <div className="m-poster" style={poster(movie)} />
+          <div className="m-info">
+            <h2>{movie.title}</h2>
+            <div className="meta">
+              {[movie.year, details?.runtime ? t("modal.runtime", { n: details.runtime }) : null, movie.rating !== null ? `★ ${movie.rating.toFixed(1)}` : null, movie.resolution, formatSize(movie.size)]
+                .filter(Boolean)
+                .join(" · ") || meta(movie)}
+            </div>
+            <div className="m-actions">
+              <button className={`mark${marks.favorite ? " on" : ""}`} aria-pressed={marks.favorite} onClick={() => toggle("favorite")}>
+                {marks.favorite ? "★" : "☆"} {t("modal.favorite")}
+              </button>
+              <button className={`mark${marks.list ? " on" : ""}`} aria-pressed={marks.list} onClick={() => toggle("list")}>
+                {marks.list ? "✓" : "+"} {t("modal.list")}
+              </button>
+            </div>
+            {details && details.genres.length > 0 && <div className="genres">{details.genres.map((g) => <span key={g} className="chip static">{g}</span>)}</div>}
+            {details?.overview && <p className="overview">{details.overview}</p>}
+            {details && (details.directors.length > 0 || details.producers.length > 0 || details.cast.length > 0) && (
+              <dl className="credits">
+                {details.directors.length > 0 && <><dt>{t("modal.director")}</dt><dd>{details.directors.join(", ")}</dd></>}
+                {details.producers.length > 0 && <><dt>{t("modal.producer")}</dt><dd>{details.producers.join(", ")}</dd></>}
+                {details.cast.length > 0 && <><dt>{t("modal.cast")}</dt><dd>{details.cast.join(", ")}</dd></>}
+              </dl>
+            )}
+          </div>
         </div>
         <div className="m-body">
-          <div className="meta">
-            {[movie.year, details?.runtime ? t("modal.runtime", { n: details.runtime }) : null, movie.rating !== null ? `★ ${movie.rating.toFixed(1)}` : null, movie.resolution, formatSize(movie.size)]
-              .filter(Boolean)
-              .join(" · ") || meta(movie)}
-          </div>
-          <div className="m-actions">
-            <button className={`mark${marks.favorite ? " on" : ""}`} aria-pressed={marks.favorite} onClick={() => toggle("favorite")}>
-              {marks.favorite ? "★" : "☆"} {t("modal.favorite")}
-            </button>
-            <button className={`mark${marks.list ? " on" : ""}`} aria-pressed={marks.list} onClick={() => toggle("list")}>
-              {marks.list ? "✓" : "+"} {t("modal.list")}
-            </button>
-          </div>
-          {details && details.genres.length > 0 && <div className="genres">{details.genres.map((g) => <span key={g} className="chip static">{g}</span>)}</div>}
-          {details?.overview && <p className="overview">{details.overview}</p>}
-          {details && (details.directors.length > 0 || details.producers.length > 0 || details.cast.length > 0) && (
-            <dl className="credits">
-              {details.directors.length > 0 && <><dt>{t("modal.director")}</dt><dd>{details.directors.join(", ")}</dd></>}
-              {details.producers.length > 0 && <><dt>{t("modal.producer")}</dt><dd>{details.producers.join(", ")}</dd></>}
-              {details.cast.length > 0 && <><dt>{t("modal.cast")}</dt><dd>{details.cast.join(", ")}</dd></>}
-            </dl>
-          )}
           <h3>{t("modal.providers")}</h3>
-          {sources.map((s) => (
+          <div className="chips" role="tablist" aria-label={t("modal.quality")}>
+            {tiers.map((x) => (
+              <button key={x} role="tab" aria-selected={x === tier} className={`chip ${x === tier ? "on" : ""}`} onClick={() => setTier(x)}>{x}</button>
+            ))}
+          </div>
+          {sources.filter((s) => s.tier === tier).map((s) => (
             <div className={`prov${s.id === copy ? " on" : ""}`} key={s.id}>
               <div className="logo-sq">{initials(s.provider)}</div>
               <div className="info">
                 <b>{s.provider}</b>
                 <span>{[t("modal.seeders", { n: s.seeders }), s.resolution, formatSize(s.size)].filter(Boolean).join(" · ")}</span>
               </div>
-              <button className="play" onClick={() => { setCopy(s.id); setPlaying(true); }}>{t("modal.play")}</button>
+              <button className="play" onClick={() => { setCopy(s.id); setPlaying(true); }}>{movie.resume ? t("modal.resume", { time: clock(movie.resume.position) }) : t("modal.play")}</button>
               <button className="dl" onClick={() => download(s.id)} disabled={s.id === copy && state !== "idle"} title={t("modal.download")} aria-label={t("modal.download")}>⬇</button>
             </div>
           ))}

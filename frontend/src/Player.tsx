@@ -1,27 +1,22 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { getAudio, saveProgress, streamUrl, subtitleUrl, type AudioTrack, type Movie, type MovieDetails } from "./api";
-import { formatSize } from "./format";
+import { clock, formatSize } from "./format";
 import { useI18n } from "./i18n";
 import { BackIcon, ExitFullscreenIcon, ForwardIcon, FullscreenIcon, MuteIcon, PauseIcon, PlayIcon, SubtitlesIcon, VolumeIcon } from "./icons";
 import TracksPanel from "./TracksPanel";
 import { useApi } from "./useApi";
 
 const SKIP = 10; // seconds
-const clock = (s: number) => {
-  s = Math.max(0, Math.floor(s));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return `${h ? `${h}:` : ""}${h ? String(m).padStart(2, "0") : m}:${String(s % 60).padStart(2, "0")}`;
-};
 const entities: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&nbsp;": " " };
 // a cue's text as plain text: no markup (<i>, <c.yellow>…), a few entities decoded; React escapes it when it is drawn
 const plain = (cue: string) => cue.replace(/<[^>]+>/g, "").replace(/&(amp|lt|gt|nbsp);/g, (e) => entities[e]);
 
 // the video takes the whole window, with our own controls: the browser's built-in bar cannot hold an
 // "Audio & subtitles" button. The controls fade after a few seconds without activity, unless it is paused.
-export default function Player({ movie, details, onBack, onChanged }: {
+export default function Player({ movie, details, resumeAt = 0, onBack, onChanged }: {
   movie: Movie;
   details: MovieDetails | null;
+  resumeAt?: number; // seconds: where the member stopped last time
   onBack: () => void;
   onChanged: () => void;
 }) {
@@ -41,9 +36,10 @@ export default function Player({ movie, details, onBack, onChanged }: {
   const [panel, setPanel] = useState(false);
   const [opened, setOpened] = useState(false); // the audio tracks are only looked up once the panel was opened
   const [sub, setSub] = useState<string | null | undefined>(undefined); // undefined: the automatic choice
-  const [audio, setAudio] = useState({ index: 0, start: 0 });
+  const from = resumeAt > 5 ? Math.floor(resumeAt) : 0; // a few seconds in is not worth a jump
+  const [audio, setAudio] = useState({ index: 0, start: from }); // a converted stream starts there
   const [cue, setCue] = useState("");
-  const seekTo = useRef(0);
+  const seekTo = useRef(from); // a file the browser plays as it is jumps there once it is loaded
 
   const tracks = useApi<AudioTrack[] | null>((signal) => (opened ? getAudio(movie.id, signal) : Promise.resolve(null)), null, [movie.id, opened]);
   const subs = details?.subtitles ?? [];
@@ -233,7 +229,9 @@ export default function Player({ movie, details, onBack, onChanged }: {
           setMuted(e.currentTarget.muted);
         }}
         onLoadedMetadata={(e) => {
-          if (seekTo.current) e.currentTarget.currentTime = seekTo.current;
+          const v = e.currentTarget;
+          // a converted stream already starts at the right place (its URL says where), and the end is not a place to resume
+          if (seekTo.current && !live.current.converted && (!Number.isFinite(v.duration) || seekTo.current < v.duration - 5)) v.currentTime = seekTo.current;
           seekTo.current = 0;
         }}
         onError={() => setFailed(true)}

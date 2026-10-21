@@ -1,8 +1,12 @@
+// the quality tabs of a film's copies: the server files a release by what its name says (anything else is a 720p)
+export type Tier = "4K" | "1080p" | "720p";
+
 // one provider's copy of a film
-export type Source = { id: number; provider: string; resolution: string | null; size: number; seeders: number };
+export type Source = { id: number; provider: string; resolution: string | null; size: number; seeders: number; tier: Tier };
 
 export type Movie = {
   id: number;
+  tier: Tier;
   title: string;
   year: number | null;
   resolution: string | null;
@@ -15,6 +19,8 @@ export type Movie = {
   watched: boolean;
   favorite?: boolean; // the star
   listed?: boolean; // in my list
+  resume?: { id: number; position: number; duration: number } | null; // where the member stopped: the copy they watched and the seconds
+  finished?: boolean; // watched to the end
   played?: number | null; // how far the member is in the film, 0 to 1 (the "continue watching" row)
   sources?: Source[]; // every provider offering this film, best first (the film's own id is the first one's)
   // for a search: why this film is in the results (a title is the plain case, the others are explained on the thumbnail)
@@ -24,8 +30,6 @@ export type Movie = {
 // a film of the downloads page: what the server has of it
 export type DownloadItem = Movie & { state: "downloading" | "ready"; progress: number };
 export type Shelf = "favorite" | "list";
-
-export type Genre = { id: string; label: string; section: "films" | "series" };
 
 // where the server is with the movie: nothing yet, downloading (progress 0..1), or fully on its disk
 // ref: what the subtitle URL takes (a language code for the torrent's file, an id for an imported one)
@@ -58,10 +62,6 @@ export type MovieComment = {
   content: string;
   edited: boolean;
 };
-
-export type Sort = "relevance" | "popularity" | "name" | "year" | "rating";
-export type LibraryQuery = { q: string; genre?: string; sort?: Sort; year_from?: number; year_to?: number; min_rating?: number; page: number };
-export type LibraryPage = { items: Movie[]; page: number; total: number; has_more: boolean };
 
 export type ApiClient = { id: number; name: string; client_id: string; created_at: string };
 export type NewApiClient = ApiClient & { client_secret: string }; // the secret is only returned at creation
@@ -99,7 +99,21 @@ async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
 const send = <T>(method: string, url: string, body?: unknown) =>
   request<T>(url, { method, body: body === undefined ? undefined : JSON.stringify(body) });
 
-export const getGenres = (signal: AbortSignal) => request<Genre[]>("/api/genres", { signal });
+// the TMDb catalogue: titles to look through; a film opens on the copies the providers have of it
+export type CatalogKind = "movie" | "tv";
+export type CatalogItem = { kind: CatalogKind; id: number; title: string; year: number | null; rating: number | null; poster: string | null; overview: string | null; genres: string[] };
+export type CatalogSheet = { runtime: number | null; directors: string[]; producers: string[]; cast: string[] };
+export const getCatalogGenres = (kind: CatalogKind, signal: AbortSignal) => request<{ id: number; name: string }[]>(`/api/catalog/genres?kind=${kind}`, { signal });
+export const getCatalogSheet = (kind: CatalogKind, id: number, signal: AbortSignal) => request<CatalogSheet>(`/api/catalog/${kind}/${id}`, { signal });
+// the film to open (every copy is a provider's source of it), null when no provider has it
+export const getCatalogCopies = (id: number, signal: AbortSignal) => request<Movie | null>(`/api/catalog/movie/${id}/copies`, { signal });
+// by popularity (of a genre, or all), or, with `q`, what TMDb finds for the words (best match first, no genre)
+export function getCatalog(kind: CatalogKind, genre: number | undefined, q: string, page: number, signal: AbortSignal) {
+  const params = new URLSearchParams({ kind, page: String(page) });
+  if (genre !== undefined) params.set("genre", String(genre));
+  if (q) params.set("q", q);
+  return request<{ items: CatalogItem[]; page: number; total: number; has_more: boolean }>(`/api/catalog?${params}`, { signal });
+}
 export const getShelf = (kind: Shelf, signal: AbortSignal) => request<Movie[]>(`/api/bookmarks/${kind}`, { signal });
 // the player says where the member is, so the film can show a bar in "continue watching"
 export const saveProgress = (id: number, position: number, duration: number) => send<void>("PUT", `/api/movies/${id}/progress`, { position, duration });
@@ -107,19 +121,6 @@ export const getDownloads = (signal: AbortSignal) => request<DownloadItem[]>("/a
 export const setBookmark = (id: number, kind: Shelf, on: boolean) => send<void>(on ? "PUT" : "DELETE", `/api/movies/${id}/bookmarks/${kind}`);
 // the films the member started, the latest first (the row "continue watching")
 export const getContinue = (signal: AbortSignal) => request<Movie[]>("/api/continue", { signal });
-
-export function search(p: { q: string; genre?: string; limit?: number }, signal: AbortSignal) {
-  const params = new URLSearchParams({ q: p.q });
-  if (p.genre) params.set("genre", p.genre);
-  if (p.limit) params.set("limit", String(p.limit));
-  return request<Movie[]>(`/api/search?${params}`, { signal });
-}
-
-export function getLibrary(p: LibraryQuery, signal: AbortSignal) {
-  const params = new URLSearchParams({ q: p.q, page: String(p.page) });
-  for (const key of ["genre", "sort", "year_from", "year_to", "min_rating"] as const) if (p[key] !== undefined) params.set(key, String(p[key]));
-  return request<LibraryPage>(`/api/library?${params}`, { signal });
-}
 
 // null when nobody is logged in (not an error, so the console stays clean)
 export const me = () => request<User | null>("/api/auth/me");
