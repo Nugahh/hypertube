@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import db, finder, main, movies, sources
+from app import db, main, movies, tmdb
 
 USER = {
     "email": "Ada@Example.com",
@@ -22,9 +22,7 @@ USER = {
 
 @pytest.fixture(autouse=True)
 def fresh_caches():
-    sources._cache.clear()
-    sources._down_until = 0
-    finder._cache.clear()
+    tmdb._genres.clear()
     movies._audio_cache.clear()
 
 

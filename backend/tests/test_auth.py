@@ -109,7 +109,7 @@ def test_a_tampered_session_cookie_is_rejected(client):
     register(client)
     client.cookies.set("session", "forged.token.value")
     assert client.get("/api/auth/me").json() is None
-    assert client.get("/api/genres").status_code == 401
+    assert client.get("/api/downloads").status_code == 401
 
 
 def test_an_expired_session_is_rejected(client):
@@ -136,4 +136,4 @@ def test_a_session_for_a_deleted_account_is_rejected(client, session_factory):
         s.delete(s.get(models.User, 1))
         s.commit()
     assert client.get("/api/auth/me").json() is None
-    assert client.get("/api/genres").status_code == 401
+    assert client.get("/api/downloads").status_code == 401

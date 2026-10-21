@@ -13,7 +13,6 @@ def _fake_fetch(xml):
 
 def test_the_library_is_closed_to_visitors(client):
     assert client.get("/api/search").status_code == 401
-    assert client.get("/api/genres").status_code == 401
 
 
 def test_search_never_leaks_the_jackett_api_key(logged_in, monkeypatch):
@@ -22,29 +21,6 @@ def test_search_never_leaks_the_jackett_api_key(logged_in, monkeypatch):
     assert res.status_code == 200
     assert "SECRETKEY" not in res.text
     assert all("link" not in m for m in res.json())
-
-
-def test_genres_lists_id_label_and_section_for_the_front(logged_in):
-    res = logged_in.get("/api/genres")
-    assert res.status_code == 200
-    genres = res.json()
-    assert genres[0] == {"id": "populaires", "label": "Popular", "section": "films"}
-    assert all(set(g) == {"id", "label", "section"} for g in genres)
-
-
-def test_search_rejects_an_unknown_genre(logged_in, monkeypatch):
-    monkeypatch.setattr(jackett, "fetch_xml", _fake_fetch(FEED))
-    assert logged_in.get("/api/search", params={"genre": "nope"}).status_code == 404
-
-
-def test_search_includes_the_open_movies_and_survives_jackett_being_down(logged_in, monkeypatch):
-    async def down(q):
-        raise OSError("down")
-
-    monkeypatch.setattr(jackett, "fetch_xml", down)
-    res = logged_in.get("/api/search", params={"q": "sintel"})
-    assert res.status_code == 200
-    assert [m["provider"] for m in res.json()] == ["Blender Open Movies"]
 
 
 def test_search_limit_caps_the_number_of_results(logged_in, monkeypatch):

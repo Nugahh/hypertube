@@ -130,11 +130,18 @@ def test_a_taken_username_is_a_409(logged_in, session_factory):
     assert logged_in.patch("/api/users/1", json={"username": "bob"}).status_code == 409
 
 
-def test_the_front_page_is_public_and_lists_the_top_movies_by_id_and_name(client, monkeypatch):
+def test_the_front_page_is_empty_until_a_member_has_found_movies(client):
+    assert client.get("/api/movies").json() == []
+
+
+def test_the_front_page_is_public_and_lists_the_top_movies_by_id_and_name(logged_in, monkeypatch):
     async def fetch(q):
         return FEED
 
     monkeypatch.setattr(jackett, "fetch_xml", fetch)
+    client = logged_in
+    client.get("/api/search")  # a member finds the movies: the site knows them
+    client.cookies.clear()
     res = client.get("/api/movies")  # no login
     assert res.status_code == 200
     top = res.json()

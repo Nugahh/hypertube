@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from app import jackett
+from app import jackett, models
 
 # Hand-written Torznab feed shaped like Jackett's real output: <link> is a Jackett
 # proxy URL carrying the API key, the provider page lives in <comments>.
@@ -58,11 +58,11 @@ def test_item_fields_are_normalized():
     assert sintel["seeders"] == 47
     assert sintel["peers"] == 50
     assert sintel["provider"] == "Internet Archive"
-    assert sintel["cover"] == "https://archive.org/services/img/sintel"
+    assert sintel["cover"] is None  # an indexer's own image URL carries Jackett's API key: TMDb gives the poster
     assert sintel["link"].startswith("http://jackett:9117/dl/internetarchive/")
 
 
-def test_missing_seeders_default_to_zero_and_unknown_cover_is_none():
+def test_missing_seeders_default_to_zero_and_there_is_no_cover():
     old = jackett.parse_results(FEED)[2]
     assert old["seeders"] == 0
     assert old["peers"] == 0
@@ -102,50 +102,18 @@ def test_jackett_error_keeps_only_the_first_line_of_a_stack_trace():
 @pytest.mark.parametrize(
     "q, expected",
     [
-        ("", "collection:feature_films"),
-        ("   ", "collection:feature_films"),
+        ("", ""),
+        ("   ", ""),
         ("sintel", "sintel"),
-        ("sintel (", "sintel"),  # an unbalanced "(" makes archive.org's query syntax fail
+        ("sintel (", "sintel"),  # an unbalanced "(" makes some indexers' query syntax fail
         ('sintel "open', "sintel open"),
         ("L'arrivée d'un train", "L'arrivée d'un train"),
         ("spider-man", "spider man"),
         ("title:sintel", "title sintel"),  # users cannot inject query syntax
     ],
 )
-def test_build_query_strips_query_syntax_and_defaults_to_popular_films(q, expected):
-    assert jackett.build_query(q) == expected
-
-
-@pytest.mark.parametrize(
-    "q, genre, expected",
-    [
-        ("", "series", "collection:classic_tv"),
-        ("", "populaires", "collection:feature_films"),
-        ("bunny", "series", "(bunny) AND (collection:classic_tv)"),
-        ("bunny", None, "bunny"),  # no genre: search every movie, not only the feature films
-    ],
-)
-def test_build_query_combines_the_words_with_the_genre(q, genre, expected):
-    assert jackett.build_query(q, genre) == expected
-
-
-def test_every_genre_has_a_label_and_a_known_section():
-    assert jackett.GENRES["populaires"]["section"] == "films"
-    assert {g["section"] for g in jackett.GENRES.values()} == {"films", "series"}
-    # the open-movies row is not an archive.org query: the second source answers it
-    assert all(g["label"] and (g["query"] or key == "blender") for key, g in jackett.GENRES.items())
-
-
-def test_search_sends_the_genre_to_jackett(monkeypatch):
-    sent = []
-
-    async def fetch(q):
-        sent.append(q)
-        return FEED
-
-    monkeypatch.setattr(jackett, "fetch_xml", fetch)
-    asyncio.run(jackett.search("", "series"))
-    assert sent == ["collection:classic_tv"]
+def test_the_query_words_are_stripped_of_query_syntax(q, expected):
+    assert " ".join(jackett.words(q)) == expected
 
 
 def test_search_sends_the_cleaned_query_to_jackett(monkeypatch):
@@ -215,19 +183,9 @@ def test_the_extra_indexers_are_asked_in_plain_words_next_to_the_main_one(extras
 
 def test_the_home_page_adds_the_latest_of_the_extra_indexers(extras):
     found = asyncio.run(jackett.search(""))
-    assert (None, "collection:feature_films") in extras.asked and ("pub1", "") in extras.asked and ("pub2", "") in extras.asked
+    assert (None, "") in extras.asked and ("pub1", "") in extras.asked and ("pub2", "") in extras.asked
     assert {"Public One", "Public Two"} <= {r["provider"] for r in found}
     assert [r["seeders"] for r in found] == sorted((r["seeders"] for r in found), reverse=True)
-
-
-def test_a_genre_row_is_an_archive_query_so_only_the_main_indexer_gets_it(extras):
-    asyncio.run(jackett.search("", "series"))
-    assert extras.asked == [(None, "collection:classic_tv")]
-
-
-def test_the_raw_lucene_queries_only_go_to_the_main_indexer(extras):
-    asyncio.run(jackett.lucene('title:"Sintel"'))
-    assert extras.asked == [(None, 'title:"Sintel"')]
 
 
 def test_an_indexer_that_fails_does_not_hide_the_others(extras):
@@ -242,3 +200,10 @@ def test_the_search_fails_only_when_every_indexer_does(extras):
         extras.answer[indexer] = OSError("down")
     with pytest.raises(jackett.JackettError):
         asyncio.run(jackett.search("metropolis"))
+
+
+def test_a_magnet_guid_fits_the_column_that_stores_it():
+    # The Pirate Bay's guid is a magnet link: 655 to 668 characters with `all` (PostgreSQL refuses what is longer than the column; SQLite does not)
+    magnet = "magnet:?xt=urn:btih:" + "B" * 40 + "&dn=" + "The.Matrix.Reloaded.2003.1080p.BluRay" + "".join(f"&tr=udp%3A%2F%2Ftracker{i}.example.org%3A1337%2Fannounce" for i in range(12))
+    assert 600 < len(magnet) < models.Movie.source_id.type.length
+    assert models.Movie.source_id.type.length == models.SOURCE_ID_LENGTH

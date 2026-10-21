@@ -5,6 +5,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 
+SOURCE_ID_LENGTH = 2000  # a magnet link with its trackers; init_db widens the column of an existing database
+
 
 class User(Base):
     __tablename__ = "users"
@@ -53,7 +55,7 @@ class Movie(Base):
     __tablename__ = "movies"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    source_id: Mapped[str] = mapped_column(String(500), unique=True)  # the provider's own id (Jackett's guid)
+    source_id: Mapped[str] = mapped_column(String(SOURCE_ID_LENGTH), unique=True)  # the provider's own id (Jackett's guid: a magnet link of 700 characters for some)
     title: Mapped[str] = mapped_column(String(300))
     year: Mapped[int | None]
     resolution: Mapped[str | None] = mapped_column(String(10))
@@ -114,6 +116,22 @@ class Watched(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id", ondelete="CASCADE"), primary_key=True)
     watched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class CatalogTitle(Base):
+    """A film or series TMDb lists, kept when the catalogue shows it: the database knows them without asking again."""
+
+    __tablename__ = "catalog"
+
+    kind: Mapped[str] = mapped_column(String(5), primary_key=True)  # movie | tv
+    tmdb_id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(300))
+    year: Mapped[int | None]
+    overview: Mapped[str | None] = mapped_column(Text)
+    poster: Mapped[str | None] = mapped_column(String(500))
+    rating: Mapped[float | None]
+    genres: Mapped[list | None] = mapped_column(JSON)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class Progress(Base):

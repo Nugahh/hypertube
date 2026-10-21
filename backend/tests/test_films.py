@@ -1,6 +1,6 @@
 import pytest
 
-from app import jackett, models
+from app import jackett, models, movies
 
 
 def xml(*items):
@@ -32,9 +32,9 @@ def films(logged_in, monkeypatch):
 
 
 def listed(client, name, **params):
-    res = client.get("/api/library", params={"per_page": 60, **params})
+    res = client.get("/api/search", params=params)
     assert res.status_code == 200, res.text
-    return [m for m in res.json()["items"] if m["title"].lower().startswith(name)]
+    return [m for m in res.json() if m["title"].lower().startswith(name)]
 
 
 def test_the_same_film_from_two_providers_is_one_thumbnail_with_both_sources(films):
@@ -44,10 +44,10 @@ def test_the_same_film_from_two_providers_is_one_thumbnail_with_both_sources(fil
     assert metropolis["sources"][0]["id"] == metropolis["id"]
 
 
-def test_the_total_counts_films_not_torrents(films):
-    res = films.get("/api/library", params={"per_page": 60}).json()
-    assert res["total"] == len(res["items"]) and len({m["id"] for m in res["items"]}) == res["total"]
-    assert sum(len(m["sources"]) for m in res["items"]) > res["total"]
+def test_the_results_count_films_not_torrents(films):
+    items = films.get("/api/search").json()
+    assert len({m["id"] for m in items}) == len(items) == 4  # Metropolis, both Draculas, Nosferatu: six torrents
+    assert sum(len(m["sources"]) for m in items) == 6
 
 
 def test_films_of_the_same_title_but_other_years_stay_apart(films):
@@ -96,5 +96,18 @@ def test_the_rows_group_the_sources_too(films):
 
 
 def test_the_front_page_lists_each_film_once(films):
+    listed(films, "metropolis")  # the site knows the films a member found
     names = [m["name"] for m in films.get("/api/movies").json() if m["name"].lower().startswith("metropolis")]
     assert len(names) == 1
+
+
+def test_grouping_shows_the_year_one_provider_knows_without_writing_it_to_the_database(session_factory):
+    # two requests that both wrote that year to the same row at once locked each other (and the whole server) on PostgreSQL
+    with session_factory() as s:
+        known = models.Movie(source_id="a", title="Big Buck Bunny 2008", year=2008, size=1, seeders=1, peers=1, provider="p", link="x", status="idle")
+        unknown = models.Movie(source_id="b", title="Big Buck Bunny", year=None, size=1, seeders=50, peers=1, provider="q", link="x", status="idle")
+        s.add_all([known, unknown])
+        s.commit()
+        [film] = movies.group([known, unknown])
+        assert (film.best.source_id, film.best.year) == ("b", 2008)
+        assert not s.dirty and not s.new

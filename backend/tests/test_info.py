@@ -40,9 +40,9 @@ def test_thumbnails_show_the_rating_and_the_tmdb_poster(library, tmdb_knows_sint
     assert movie["cover"] == "https://image.tmdb.org/t/p/w500/p.jpg"
 
 
-def test_without_tmdb_a_thumbnail_keeps_the_provider_cover_and_has_no_rating(library):  # noqa: F811
+def test_without_tmdb_a_thumbnail_has_no_rating_and_no_cover(library):  # noqa: F811
     movie = next(m for m in library.get("/api/search").json() if m["title"] == "Sintel.2010.720p")
-    assert movie["rating"] is None and "archive.org" in movie["cover"]
+    assert movie["rating"] is None and movie["cover"] is None
 
 
 def test_the_sheet_has_summary_casting_length_and_rating(library, tmdb_knows_sintel):  # noqa: F811

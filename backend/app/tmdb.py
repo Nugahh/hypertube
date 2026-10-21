@@ -142,48 +142,64 @@ async def enrich(db, movies):
 
 
 LANGUAGE_TAGS = {"fr": "fr-FR", "en": "en-US"}
-TOP_TITLES, TOP_PEOPLE, TOP_FILMS = 3, 8, 25
+MAX_PAGES = 500  # TMDb lists no further
+_genres = {}  # (kind, language) -> {genre id: name}. shortcut: kept in memory, a restart asks again
 
 
-async def discover(query, language="en"):
-    """What TMDb knows under this name, in the member's language and in English: the titles (with every name they go by)
-    and the people (a director, an actor…, with how well known they are). It is how a foreign title leads to the film's other names."""
-    if not os.getenv("TMDB_API_KEY"):
-        return {"titles": [], "people": []}
-    tags = list(dict.fromkeys([LANGUAGE_TAGS.get(language, "en-US"), "en-US"]))
+async def _call(path, **params):
+    """One TMDb request: its JSON. LookupError when TMDb has no such thing, TmdbError when it cannot be asked."""
     try:
         async with _client() as client:
-            answers = await asyncio.gather(*(_get(client, "/search/multi", query=query, language=tag, include_adult="false") for tag in tags))
-    except (httpx.HTTPError, KeyError, ValueError) as e:
+            return await _get(client, path, **params)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise LookupError(path) from e
         logging.getLogger("uvicorn.error").warning("TMDb request failed: %s", type(e).__name__)
         raise TmdbError("TMDb unavailable") from e
-    titles, people = {}, {}
-    for answer in answers:
-        for hit in answer.get("results", []):
-            kind, key = hit.get("media_type"), hit.get("id")
-            if kind == "person" and hit.get("name"):
-                people.setdefault(key, {"id": key, "name": hit["name"], "department": hit.get("known_for_department"), "popularity": hit.get("popularity") or 0})
-            elif kind in ("movie", "tv"):
-                entry = titles.setdefault((kind, key), {"id": key, "year": _year(hit.get("release_date") or hit.get("first_air_date")), "names": []})
-                for name in (hit.get("title") or hit.get("name"), hit.get("original_title") or hit.get("original_name")):
-                    if name and name not in entry["names"]:
-                        entry["names"].append(name)
-    found = [t for t in titles.values() if t["names"]]  # the answers come in the order of relevance
-    return {"titles": found[:TOP_TITLES], "people": list(people.values())[:TOP_PEOPLE]}
-
-
-async def filmography(person_id):
-    """The films a person directed and the films they acted in, the most voted first: {'director': [...], 'cast': [...]}."""
-    try:
-        async with _client() as client:
-            credits = await _get(client, f"/person/{person_id}/combined_credits", language="en-US")
     except (httpx.HTTPError, KeyError, ValueError) as e:
         logging.getLogger("uvicorn.error").warning("TMDb request failed: %s", type(e).__name__)
         raise TmdbError("TMDb unavailable") from e
 
-    def films(credit_list, keep):
-        movies = [c for c in credit_list if c.get("media_type") == "movie" and c.get("title") and keep(c)]
-        movies.sort(key=lambda c: c.get("vote_count") or 0, reverse=True)
-        return [{"title": c["title"], "original_title": c.get("original_title") or c["title"], "year": _year(c.get("release_date"))} for c in movies[:TOP_FILMS]]
 
-    return {"director": films(credits.get("crew", []), lambda c: c.get("job") == "Director"), "cast": films(credits.get("cast", []), lambda c: True)}
+async def genre_names(kind, language):
+    """TMDb's genres of films (kind "movie") or series ("tv"), in that language: {id: name}."""
+    if (kind, language) not in _genres:
+        found = await _call(f"/genre/{kind}/list", language=language)
+        _genres[(kind, language)] = {g["id"]: g["name"] for g in found["genres"]}
+    return _genres[(kind, language)]
+
+
+async def browse(kind, genre, page, language, q=None):
+    """One page of the catalogue: the films or series TMDb lists by popularity (of a genre, or all), or the ones that answer
+    the search `q` (best match first; TMDb does not filter a search by genre), as thumbnails."""
+    names = await genre_names(kind, language)
+    params = {"language": language, "page": page, "include_adult": "false"}
+    if q:
+        path, params["query"] = f"/search/{kind}", q
+    else:
+        path = f"/discover/{kind}"
+        params |= {"sort_by": "popularity.desc", "vote_count.gte": 100}  # nobody-rated titles are no catalogue
+        if genre:
+            params["with_genres"] = genre
+    found = await _call(path, **params)
+    items = [
+        {
+            "kind": kind,
+            "id": d["id"],
+            "title": d.get("title") or d.get("name") or "",
+            "year": _year(d.get("release_date") or d.get("first_air_date")),
+            "rating": round(d["vote_average"], 1) if d.get("vote_count") and d.get("vote_average") else None,
+            "poster": IMAGES + d["poster_path"] if d.get("poster_path") else None,
+            "overview": d.get("overview") or None,
+            "genres": [names[i] for i in d.get("genre_ids", []) if i in names],
+        }
+        for d in found["results"]
+    ]
+    return {"items": items, "total": found["total_results"], "pages": found["total_pages"]}
+
+
+async def title_sheet(kind, tmdb_id, language):
+    """Everything TMDb has on one film or series: summary, length, rating, genres, directors, cast."""
+    d = await _call(f"/{kind}/{tmdb_id}", language=language, append_to_response="credits")
+    title = d.get("title") or d.get("name") or ""
+    return {**_normalize(kind, d, tmdb_id), "title": title, "original_title": d.get("original_title") or d.get("original_name") or title}

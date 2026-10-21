@@ -49,6 +49,12 @@ class FakeEngine:
         self.videos, self.ready = videos, ready
         self.subs = {}  # file name -> (content, complete): subtitle files that come with the torrent
         self.added, self.removed, self.torrents = [], [], {}
+        self.magnets = {}  # magnet link -> the .torrent bytes (a key of `videos`) the swarm would give for it
+
+    async def add_magnet(self, uri, peers=()):
+        if uri not in self.magnets:
+            raise engine_module.NoMetadata("nobody shares it")
+        return self.add(self.magnets[uri], peers)
 
     def add(self, data, peers=()):
         if data not in self.videos:

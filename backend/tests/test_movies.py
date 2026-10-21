@@ -188,6 +188,53 @@ def test_fetch_torrent_returns_the_file_the_provider_sends(monkeypatch):
     assert asyncio.run(jackett.fetch_torrent("http://jackett:9117/dl/x/?jackett_apikey=SECRETKEY")) == b"data"
 
 
+MAGNET = "magnet:?xt=urn:btih:" + "a" * 40 + "&dn=Sintel"
+
+
+def answering(monkeypatch, handler):
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+
+
+def test_a_magnet_link_is_its_own_torrent_and_nobody_is_asked(monkeypatch):
+    def nobody(request):
+        raise AssertionError("a magnet link is not fetched")
+
+    answering(monkeypatch, nobody)
+    assert asyncio.run(jackett.fetch_torrent(MAGNET)) == MAGNET
+
+
+@pytest.mark.parametrize("answer", [httpx.Response(302, headers={"location": MAGNET}), httpx.Response(200, text=MAGNET)])
+def test_fetch_torrent_gives_the_magnet_link_a_provider_answers_with(monkeypatch, answer):
+    answering(monkeypatch, lambda request: answer)  # a redirect to the magnet link is not followed, its address is the answer
+    assert asyncio.run(jackett.fetch_torrent("http://jackett:9117/dl/x/?jackett_apikey=SECRETKEY")) == MAGNET
+
+
+def test_a_redirect_to_anything_else_is_an_error(monkeypatch):
+    answering(monkeypatch, lambda request: httpx.Response(302, headers={"location": "http://elsewhere/x.torrent"}))
+    with pytest.raises(jackett.JackettError):
+        asyncio.run(jackett.fetch_torrent("http://jackett:9117/dl/x/?jackett_apikey=SECRETKEY"))
+
+
+def test_a_result_with_a_magnet_link_streams_once_the_swarm_has_given_its_files(library, monkeypatch):
+    async def fetch_magnet(link):
+        return MAGNET
+
+    monkeypatch.setattr(jackett, "fetch_torrent", fetch_magnet)
+    library.engine.magnets[MAGNET] = TORRENT_A
+    res = library.get(f"/api/movies/{sintel(library)}/stream", headers={"Range": "bytes=0-9"})
+    assert (res.status_code, res.content) == (206, VIDEO[:10])
+
+
+def test_a_magnet_link_nobody_shares_answers_504(library, monkeypatch):
+    async def fetch_magnet(link):
+        return MAGNET
+
+    monkeypatch.setattr(jackett, "fetch_torrent", fetch_magnet)
+    res = library.get(f"/api/movies/{sintel(library)}/stream")
+    assert (res.status_code, res.json()["detail"]) == (504, "Nobody is sharing this torrent right now")
+
+
 def test_fetch_torrent_errors_never_leak_the_api_key(monkeypatch):
     real = httpx.AsyncClient
     monkeypatch.setattr(

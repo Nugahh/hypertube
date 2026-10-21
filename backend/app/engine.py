@@ -3,6 +3,7 @@
 We drive libtorrent ourselves (piece priorities, reading what has arrived): it is a torrent client library,
 not one of the "make a stream from a torrent" libraries the subject forbids (webtorrent, peerflix, …).
 """
+import asyncio
 import os
 import time
 from pathlib import Path
@@ -16,9 +17,14 @@ OTHER_VIDEO = (".mkv", ".avi", ".mov", ".ogv", ".mpg", ".mpeg", ".wmv", ".flv", 
 LOOKAHEAD_BYTES = 8 * 1024 * 1024  # how far ahead of the playback position pieces are made urgent
 LOOKAHEAD_MAX_PIECES = 64
 HIGH, SKIP = 4, 0  # libtorrent file priorities
+METADATA_WAIT = 45  # seconds a magnet link gets to find the torrent's file list in the swarm
 
 
 class NoVideo(Exception):
+    pass
+
+
+class NoMetadata(Exception):
     pass
 
 
@@ -114,11 +120,22 @@ class Engine:
                 "listen_interfaces": listen,
                 "enable_dht": dht,
                 # after a failed connection libtorrent waits 30 s before retrying a web seed: far too long
-                # for someone waiting for a movie to start (archive.org torrents depend on their web seeds)
+                # for someone waiting for a movie to start (a torrent with few peers depends on its web seeds)
                 "urlseed_wait_retry": 5,
             }
         )
         self._torrents = {}
+
+    @staticmethod
+    def _plan(info):
+        """(index of the video to play, file priorities): only that file and the subtitles are downloaded."""
+        files = info.layout()
+        listing = [(files.file_path(i), files.file_size(i)) for i in range(files.num_files())]
+        index = pick_video(listing)
+        if index is None:
+            raise NoVideo("no video file in this torrent")
+        wanted = {index, *subtitle_indexes(files)}
+        return index, [HIGH if i in wanted else SKIP for i in range(len(listing))]
 
     def add(self, data, peers=()):
         """Start (or find) the download of the video inside a .torrent file. Only that file is downloaded."""
@@ -129,20 +146,46 @@ class Engine:
         infohash = str(info.info_hashes().get_best())
         if infohash in self._torrents:
             return self._torrents[infohash]
-        files = info.layout()
-        listing =[(files.file_path(i), files.file_size(i)) for i in range(files.num_files())]
-        index = pick_video(listing)
-        if index is None:
-            raise NoVideo("no video file in this torrent")
+        index, priorities = self._plan(info)
         params = lt.add_torrent_params()
         params.ti = info
         params.save_path = str(self.download_dir)
         params.flags |= lt.torrent_flags.sequential_download  # the movie fills up in playing order
-        wanted = {index, *subtitle_indexes(files)}
-        params.file_priorities = [HIGH if i in wanted else SKIP for i in range(len(listing))]
+        params.file_priorities = priorities
         handle = self.session.add_torrent(params)
         for peer in peers:
             handle.connect_peer(peer)
+        torrent = self._torrents[infohash] = Torrent(handle, info, index, self.download_dir)
+        return torrent
+
+    async def add_magnet(self, uri, peers=(), wait=METADATA_WAIT):
+        """Same as `add` for a magnet link. It holds only the torrent's hash: the list of files comes from the swarm
+        (trackers, DHT), so this waits for it; NoMetadata when nobody gave it in time."""
+        try:
+            params = lt.parse_magnet_uri(uri)
+        except (RuntimeError, ValueError, TypeError) as e:
+            raise InvalidTorrent("not a valid magnet link") from e
+        infohash = str(params.info_hashes.get_best())
+        if infohash in self._torrents:
+            return self._torrents[infohash]
+        params.save_path = str(self.download_dir)
+        params.flags |= lt.torrent_flags.sequential_download | lt.torrent_flags.default_dont_download  # nothing is downloaded before the video is chosen
+        handle = self.session.add_torrent(params)  # the player asks again while this waits: the same torrent comes back
+        for peer in peers:
+            handle.connect_peer(peer)
+        deadline = time.monotonic() + wait
+        while not handle.status().has_metadata:
+            if time.monotonic() > deadline:
+                self.session.remove_torrent(handle)
+                raise NoMetadata("nobody gave this torrent's file list in time")
+            await asyncio.sleep(0.25)
+        info = handle.torrent_file()
+        try:
+            index, priorities = self._plan(info)
+        except NoVideo:
+            self.session.remove_torrent(handle)
+            raise
+        handle.prioritize_files(priorities)
         torrent = self._torrents[infohash] = Torrent(handle, info, index, self.download_dir)
         return torrent
 

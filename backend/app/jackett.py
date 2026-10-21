@@ -9,33 +9,14 @@ from pathlib import Path
 import httpx
 
 JACKETT_URL = os.getenv("JACKETT_URL", "http://localhost:9117")
-INDEXER = os.getenv("JACKETT_INDEXER", "internetarchive")  # the main one: it gets the archive.org (Lucene) queries
-# other Jackett indexers (comma separated ids) searched next to it, with plain words only; legal sources only
+INDEXER = os.getenv("JACKETT_INDEXER", "all")  # "all" asks every indexer configured in Jackett
+# other Jackett indexers (comma separated ids) searched next to it; legal sources only
 EXTRA = [i.strip() for i in os.getenv("JACKETT_EXTRA_INDEXERS", "").split(",") if i.strip()]
 CONFIG_FILE = os.getenv("JACKETT_CONFIG", "/jackett-config/Jackett/ServerConfig.json")
 
 TORZNAB = "{http://torznab.com/schemas/2015/feed}"
 YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
 RESOLUTION = re.compile(r"\b(?:480|576|720|1080|2160)p\b", re.I)
-ARCHIVE_ID = re.compile(r"https://archive\.org/details/([^/?#]+)")
-
-
-FILMS = "collection:feature_films"
-
-
-def _genre(label, query, section="films"):
-    return {"label": label, "query": query, "section": section}
-
-
-# the rows that are not TMDb genres (those come from movies.known_genres): archive.org queries (Lucene syntax), the first
-# one is also the home page
-GENRES = {
-    # labels are English (the default language); the front translates them by id
-    "populaires": _genre("Popular", FILMS),
-    # not an archive.org query: this row comes from the second source (blender.py)
-    "blender": _genre("Open movies", ""),
-    "series": _genre("Classic TV series", "collection:classic_tv", "series"),
-}
 
 
 class JackettError(Exception):
@@ -43,16 +24,8 @@ class JackettError(Exception):
 
 
 def words(q):
-    # archive.org parses the query as Lucene: strip the syntax characters, an unbalanced "(" makes it fail
+    # some indexers parse the query as a syntax (Lucene…): strip its characters, an unbalanced "(" makes them fail
     return re.sub(r"[^\w\s']", " ", q).split()
-
-
-def build_query(q, genre=None):
-    joined = " ".join(words(q))
-    base = GENRES[genre or "populaires"]["query"]
-    if not joined:
-        return base
-    return f"({joined}) AND ({base})" if genre else joined
 
 
 def parse_title(title):
@@ -75,7 +48,6 @@ def parse_results(xml):
         attrs = {a.get("name"): a.get("value") for a in item.findall(f"{TORZNAB}attr")}
         title = item.findtext("title", "")
         year, resolution = parse_title(title)
-        archive = ARCHIVE_ID.match(item.findtext("comments", ""))
         results.append(
             {
                 "id": item.findtext("guid", ""),
@@ -86,7 +58,7 @@ def parse_results(xml):
                 "seeders": int(attrs.get("seeders", 0)),
                 "peers": int(attrs.get("peers", 0)),
                 "provider": item.findtext("jackettindexer", ""),
-                "cover": f"https://archive.org/services/img/{archive[1]}" if archive else None,
+                "cover": None,  # the indexers' own image URL carries Jackett's API key: TMDb gives the poster
                 # Jackett proxy URL carrying the API key: server side only, never sent to the browser
                 "link": item.findtext("link", ""),
             }
@@ -111,12 +83,17 @@ async def fetch_xml(q, indexer=None):
 
 
 async def fetch_torrent(link):
-    """The .torrent file behind a result's link (Jackett fetches it from the provider)."""
+    """The torrent behind a result's link: the bytes of a .torrent file (Jackett fetches it from the provider), or a magnet
+    link (str) for a provider that only has those: its link is one, or Jackett's download URL redirects to one."""
+    if link.startswith("magnet:"):
+        return link
     try:
         async with httpx.AsyncClient(timeout=100) as client:
-            res = await client.get(link)
+            res = await client.get(link)  # a redirect is not followed: its address is the answer
+            if res.is_redirect and res.headers.get("location", "").startswith("magnet:"):
+                return res.headers["location"]
             res.raise_for_status()
-            return res.content
+            return res.text if res.content.startswith(b"magnet:") else res.content
     except httpx.HTTPError as e:
         logging.getLogger("uvicorn.error").warning("Torrent download failed: %s", type(e).__name__)
         raise JackettError("Jackett unavailable") from e  # never forward str(e): it holds the URL and its API key
@@ -131,11 +108,6 @@ async def _run(query, indexer=None):
         raise JackettError("Jackett unavailable") from e
 
 
-async def lucene(query):
-    """A raw archive.org (Lucene) query through Jackett: every result, most seeded first, unfiltered."""
-    return await _run(query)
-
-
 async def _all_of(jobs):
     """Every indexer at once: what those that answered found (most seeded first), an error only when none answered."""
     answers = await asyncio.gather(*jobs, return_exceptions=True)
@@ -145,14 +117,12 @@ async def _all_of(jobs):
     return sorted((r for a in answered for r in a), key=lambda r: r["seeders"], reverse=True)
 
 
-async def search(q, genre=None):
-    jobs = [_run(build_query(q, genre))]
-    if genre in (None, "populaires"):  # a genre row is an archive.org query: the extra indexers only know plain words
-        jobs += [_run(" ".join(words(q)), i) for i in EXTRA]
-    results = await _all_of(jobs)
+async def search(q):
+    """What the indexers have for these words (with none: what they list by default): most seeded first, or by name when
+    words were given."""
+    query = " ".join(words(q))
+    results = await _all_of([_run(query)] + [_run(query, i) for i in EXTRA])
     wanted = [w.lower() for w in words(q)]
-    if not wanted:
-        return results  # home page: archive.org's most downloaded films
-    # archive.org also matches descriptions, keep only titles with every word; the subject wants name order
+    # an indexer also matches descriptions: keep only titles with every word; the subject wants name order
     matching = [r for r in results if all(w in r["title"].lower() for w in wanted)]
-    return sorted(matching, key=lambda r: r["title"].lower())
+    return sorted(matching, key=lambda r: r["title"].lower()) if wanted else matching

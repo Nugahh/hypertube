@@ -61,3 +61,33 @@ def test_each_member_has_their_own_position(seen):
     assert bob.post("/api/auth/register", json={**BOB, "email": "carol@example.com", "username": "carol"}).status_code == 201
     save(bob, seen.ids[METRO], 100, 120)
     assert played(seen) == {METRO: None}
+
+
+def card(client, title=METRO):
+    return next(m for m in client.get("/api/search", params={"limit": 100}).json() if m["title"] == title)
+
+
+def test_a_thumbnail_says_where_the_member_stopped(seen):
+    assert (card(seen)["resume"], card(seen)["finished"]) == (None, False)
+    save(seen, seen.ids[METRO], 30, 120)
+    assert card(seen)["resume"] == {"id": seen.ids[METRO], "position": 30, "duration": 120} and card(seen)["finished"] is False
+
+
+def test_the_copy_the_member_watched_is_the_one_the_film_resumes_on(seen):
+    best, other = [s["id"] for s in card(seen)["sources"]]
+    save(seen, other, 50, 100)
+    assert card(seen)["resume"]["id"] == other  # the thumbnail is the best copy, the position belongs to the other one
+    save(seen, best, 10, 100)  # watched later
+    assert card(seen)["resume"] == {"id": best, "position": 10, "duration": 100}
+
+
+def test_a_film_watched_to_the_end_starts_again_from_the_beginning(seen):
+    save(seen, seen.ids[METRO], 119, 120)
+    assert (card(seen)["resume"], card(seen)["finished"]) == (None, True)
+
+
+def test_the_position_is_the_members_own(seen):
+    save(seen, seen.ids[METRO], 30, 120)
+    carol = TestClient(main.app)
+    assert carol.post("/api/auth/register", json={**BOB, "email": "carol@example.com", "username": "carol"}).status_code == 201
+    assert (card(carol)["resume"], card(carol)["finished"]) == (None, False)

@@ -4,7 +4,7 @@ import pytest
 
 from app import engine as engine_module
 from app import stream
-from tests.swarm import noise, seed
+from tests.swarm import lt, noise, seed
 
 pytest.importorskip("libtorrent")
 
@@ -46,6 +46,39 @@ def test_the_engine_streams_the_native_video_of_a_torrent(swarm):
     assert torrent.file_path.endswith("movie.mp4")
     assert torrent.size == len(MP4)
     assert asyncio.run(read_all(torrent, 0, torrent.size - 1)) == MP4
+
+
+def magnet_of(torrent_bytes):
+    return "magnet:?xt=urn:btih:" + str(lt.torrent_info(torrent_bytes).info_hashes().get_best())  # only the hash: no file list
+
+
+def test_a_magnet_link_finds_the_file_list_in_the_swarm_and_streams_the_video(swarm):
+    engine, torrent_bytes, address = swarm
+    torrent = asyncio.run(engine.add_magnet(magnet_of(torrent_bytes), peers=[address]))
+    assert torrent.file_path.endswith("movie.mp4")
+    assert torrent.size == len(MP4)
+    assert asyncio.run(read_all(torrent, 0, torrent.size - 1)) == MP4
+    assert not (engine.download_dir / "pack" / "movie.mkv").exists()  # only the video (and subtitles) is downloaded, as with a .torrent file
+
+
+def test_a_magnet_link_that_is_already_running_is_the_same_torrent(swarm):
+    engine, torrent_bytes, address = swarm
+    first = asyncio.run(engine.add_magnet(magnet_of(torrent_bytes), peers=[address]))
+    assert asyncio.run(engine.add_magnet(magnet_of(torrent_bytes))) is first
+    assert engine.add(torrent_bytes) is first
+
+
+def test_a_magnet_link_nobody_shares_gives_up_and_leaves_nothing_running(swarm):
+    engine, *_ = swarm
+    with pytest.raises(engine_module.NoMetadata):
+        asyncio.run(engine.add_magnet("magnet:?xt=urn:btih:" + "c" * 40, wait=0.5))
+    assert engine.session.get_torrents() == []
+
+
+def test_something_that_is_not_a_magnet_link_is_refused(swarm):
+    engine, *_ = swarm
+    with pytest.raises(engine_module.InvalidTorrent):
+        asyncio.run(engine.add_magnet("not a magnet"))
 
 
 def test_the_engine_serves_any_range_without_downloading_in_order(swarm):
