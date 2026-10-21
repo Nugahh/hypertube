@@ -32,15 +32,6 @@ services:
       - "127.0.0.1:9117:9117"
     restart: unless-stopped
 
-  jackett-init:
-    image: curlimages/curl:latest
-    entrypoint: ["sh", "/init.sh"]
-    volumes:
-      - ./jackett/init.sh:/init.sh:ro
-    depends_on:
-      - jackett
-    restart: "no"
-
   backend:
     build: ./backend
     environment:
@@ -48,6 +39,7 @@ services:
       DATABASE_URL: postgresql+psycopg://hypertube:${POSTGRES_PASSWORD}@db:5432/hypertube
       JACKETT_URL: http://jackett:9117
       JACKETT_INDEXER: ${JACKETT_INDEXER:-internetarchive}
+      JACKETT_EXTRA_INDEXERS: ${JACKETT_EXTRA_INDEXERS:-}
       JACKETT_API_KEY: ${JACKETT_API_KEY:-}
       APP_URL: ${APP_URL:-http://localhost:3000}
       FORTYTWO_CLIENT_ID: ${FORTYTWO_CLIENT_ID:-}
