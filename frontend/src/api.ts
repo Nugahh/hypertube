@@ -1,0 +1,150 @@
+export type Movie = {
+  id: number;
+  title: string;
+  year: number | null;
+  resolution: string | null;
+  size: number;
+  seeders: number;
+  peers: number;
+  provider: string;
+  cover: string | null;
+  rating: number | null; // TMDb, out of 10
+  watched: boolean;
+  // for a search: why this film is in the results (a title is the plain case, the others are explained on the thumbnail)
+  match?: { kind: "title" | "alias" | "director" | "creator" | "cast" | "overview" | "other"; label: string | null } | null;
+};
+
+export type Genre = { id: string; label: string; section: "films" | "series" };
+
+// where the server is with the movie: nothing yet, downloading (progress 0..1), or fully on its disk
+// ref: what the subtitle URL takes (a language code for the torrent's file, an id for an imported one)
+export type Subtitle = { ref: string; lang: string; label: string; source: "torrent" | "upload" | "opensubtitles"; mine: boolean };
+export type AudioTrack = { index: number; lang: string | null; label: string; codec: string | null; channels: number | null };
+export type FoundSubtitle = { file_id: number; lang: string; release: string; downloads: number; title: string; year: number | null };
+export type MovieDetails = Movie & {
+  state: "idle" | "downloading" | "ready";
+  progress: number;
+  rate: number;
+  native: boolean | null; // the browser plays the file as it is (else it is converted); null until the torrent was opened
+  overview: string | null;
+  runtime: number | null; // minutes
+  language: string | null; // original language of the video
+  genres: string[];
+  directors: string[];
+  producers: string[];
+  cast: string[];
+  comments?: number; // only on GET /api/movies/:id
+  subtitles?: Subtitle[];
+};
+
+export type MovieComment = {
+  id: number;
+  movie_id: number;
+  user_id: number;
+  username: string;
+  avatar_url: string | null;
+  date: string;
+  content: string;
+  edited: boolean;
+};
+
+export type Sort = "relevance" | "popularity" | "name" | "year" | "rating";
+export type LibraryQuery = { q: string; genre?: string; sort?: Sort; year_from?: number; year_to?: number; min_rating?: number; page: number };
+export type LibraryPage = { items: Movie[]; page: number; total: number; has_more: boolean };
+
+export type ApiClient = { id: number; name: string; client_id: string; created_at: string };
+export type NewApiClient = ApiClient & { client_secret: string }; // the secret is only returned at creation
+
+// what anyone can see of a member; `email` is only present on the own profile
+export type PublicUser = {
+  id: number;
+  username: string;
+  first_name: string;
+  last_name: string;
+  avatar_url: string | null;
+};
+
+export type User = PublicUser & { email: string; language: "en" | "fr" };
+
+export type RegisterData = Pick<User, "email" | "username" | "first_name" | "last_name"> & { password: string };
+export type ProfileChanges = Partial<Pick<User, "email" | "first_name" | "last_name" | "language" | "avatar_url">>;
+
+// the UI translates by `status` (see errorText in i18n.tsx)
+export class ApiError extends Error {
+  constructor(public status: number) {
+    super(`HTTP ${status}`);
+  }
+}
+
+async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
+  const isJson = typeof init.body === "string";
+  const res = await fetch(url, { ...init, headers: isJson ? { "Content-Type": "application/json" } : undefined });
+  // a closed session on any call outside the auth routes sends the user back to the login page
+  if (res.status === 401 && !url.startsWith("/api/auth/")) window.dispatchEvent(new Event("unauthorized"));
+  if (!res.ok) throw new ApiError(res.status);
+  return res.status === 204 ? (undefined as T) : res.json();
+}
+
+const send = <T>(method: string, url: string, body?: unknown) =>
+  request<T>(url, { method, body: body === undefined ? undefined : JSON.stringify(body) });
+
+export const getGenres = (signal: AbortSignal) => request<Genre[]>("/api/genres", { signal });
+
+export function search(p: { q: string; genre?: string; limit?: number }, signal: AbortSignal) {
+  const params = new URLSearchParams({ q: p.q });
+  if (p.genre) params.set("genre", p.genre);
+  if (p.limit) params.set("limit", String(p.limit));
+  return request<Movie[]>(`/api/search?${params}`, { signal });
+}
+
+export function getLibrary(p: LibraryQuery, signal: AbortSignal) {
+  const params = new URLSearchParams({ q: p.q, page: String(p.page) });
+  for (const key of ["genre", "sort", "year_from", "year_to", "min_rating"] as const) if (p[key] !== undefined) params.set(key, String(p[key]));
+  return request<LibraryPage>(`/api/library?${params}`, { signal });
+}
+
+// null when nobody is logged in (not an error, so the console stays clean)
+export const me = () => request<User | null>("/api/auth/me");
+export const login = (username: string, password: string) => send<User>("POST", "/api/auth/login", { username, password });
+export const register = (data: RegisterData) => send<User>("POST", "/api/auth/register", data);
+export const logout = () => send<void>("POST", "/api/auth/logout");
+export const forgotPassword = (email: string) => send<void>("POST", "/api/auth/forgot", { email });
+export const resetPassword = (token: string, password: string) => send<void>("POST", "/api/auth/reset", { token, password });
+
+export const getMovie = (id: number, signal: AbortSignal) => request<MovieDetails>(`/api/movies/${id}`, { signal });
+export const startDownload = (id: number) => send<MovieDetails>("POST", `/api/movies/${id}/download`);
+// another audio track, or a restart from `start` seconds, goes through the server's converter
+export const streamUrl = (id: number, audio = 0, start = 0) => `/api/movies/${id}/stream${audio || start ? `?audio=${audio}&start=${start}` : ""}`;
+export const subtitleUrl = (id: number, ref: string) => `/api/movies/${id}/subtitles/${ref}`;
+
+export const getAudio = (id: number, signal: AbortSignal) => request<AudioTrack[]>(`/api/movies/${id}/audio`, { signal });
+export const searchSubtitles = (id: number, lang: string, signal: AbortSignal) =>
+  request<FoundSubtitle[]>(`/api/movies/${id}/subtitles/search?lang=${lang}`, { signal });
+export function importSubtitleFile(id: number, file: File, lang: string) {
+  const body = new FormData();
+  body.append("file", file);
+  if (lang) body.append("lang", lang);
+  return request<Subtitle>(`/api/movies/${id}/subtitles`, { method: "POST", body });
+}
+export const importFromOpenSubtitles = (id: number, f: FoundSubtitle) =>
+  send<Subtitle>("POST", `/api/movies/${id}/subtitles/opensubtitles`, { file_id: f.file_id, lang: f.lang, release: f.release });
+export const deleteSubtitle = (id: number, ref: string) => send<void>("DELETE", `/api/movies/${id}/subtitles/${ref}`);
+
+export const getComments = (movieId: number, signal: AbortSignal) => request<MovieComment[]>(`/api/movies/${movieId}/comments`, { signal });
+export const postComment = (movieId: number, comment: string) => send<MovieComment>("POST", `/api/movies/${movieId}/comments`, { comment });
+export const editComment = (id: number, comment: string) => send<MovieComment>("PATCH", `/api/comments/${id}`, { comment });
+export const deleteComment = (id: number) => send<void>("DELETE", `/api/comments/${id}`);
+
+export const listUsers = (signal: AbortSignal) => request<{ id: number; username: string }[]>("/api/users", { signal });
+
+export const listClients = (signal: AbortSignal) => request<ApiClient[]>("/api/clients", { signal });
+export const createClient = (name: string) => send<NewApiClient>("POST", "/api/clients", { name });
+export const deleteClient = (id: number) => send<void>("DELETE", `/api/clients/${id}`);
+
+export const getUser = (id: number, signal: AbortSignal) => request<PublicUser | User>(`/api/users/${id}`, { signal });
+export const updateProfile = (id: number, changes: ProfileChanges) => send<User>("PATCH", `/api/users/${id}`, changes);
+export function uploadAvatar(file: File) {
+  const body = new FormData();
+  body.append("file", file);
+  return request<User>("/api/users/me/avatar", { method: "POST", body });
+}
