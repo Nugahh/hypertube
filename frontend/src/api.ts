@@ -64,22 +64,8 @@ export type MovieComment = {
   edited: boolean;
 };
 
-export type ApiClient = { id: number; name: string; client_id: string; created_at: string };
-export type NewApiClient = ApiClient & { client_secret: string }; // the secret is only returned at creation
-
-// what anyone can see of a member; `email` is only present on the own profile
-export type PublicUser = {
-  id: number;
-  username: string;
-  first_name: string;
-  last_name: string;
-  avatar_url: string | null;
-};
-
-export type User = PublicUser & { email: string; language: "en" | "fr"; welcomed: boolean };
-
-export type RegisterData = Pick<User, "email" | "username" | "first_name" | "last_name"> & { password: string };
-export type ProfileChanges = Partial<Pick<User, "username" | "email" | "first_name" | "last_name" | "language" | "avatar_url" | "welcomed">>;
+// the one member of this installation (nobody logs in)
+export type User = { id: number; username: string; language: "en" | "fr"; avatar_url: string | null };
 
 // the UI translates by `status` (see errorText in i18n.tsx)
 export class ApiError extends Error {
@@ -131,12 +117,8 @@ export const setBookmark = (id: number, kind: Shelf, on: boolean) => send<void>(
 export const getContinue = (signal: AbortSignal) => request<Movie[]>("/api/continue", { signal });
 
 // null when nobody is logged in (not an error, so the console stays clean)
-export const me = () => request<User | null>("/api/auth/me");
-export const login = (username: string, password: string) => send<User>("POST", "/api/auth/login", { username, password });
-export const register = (data: RegisterData) => send<User>("POST", "/api/auth/register", data);
-export const logout = () => send<void>("POST", "/api/auth/logout");
-export const forgotPassword = (email: string) => send<void>("POST", "/api/auth/forgot", { email });
-export const resetPassword = (token: string, password: string) => send<void>("POST", "/api/auth/reset", { token, password });
+export const me = () => request<User>("/api/auth/me");
+export const setLanguage = (language: User["language"]) => send<User>("PATCH", "/api/users/me", { language });
 
 export const getMovie = (id: number, signal: AbortSignal) => request<MovieDetails>(`/api/movies/${id}`, { signal });
 export const cancelDownload = (id: number) => send<MovieDetails>("DELETE", `/api/movies/${id}/download`);
@@ -167,9 +149,3 @@ export const postComment = (movieId: number, comment: string) => send<MovieComme
 export const editComment = (id: number, comment: string) => send<MovieComment>("PATCH", `/api/comments/${id}`, { comment });
 export const deleteComment = (id: number) => send<void>("DELETE", `/api/comments/${id}`);
 
-export const listClients = (signal: AbortSignal) => request<ApiClient[]>("/api/clients", { signal });
-export const createClient = (name: string) => send<NewApiClient>("POST", "/api/clients", { name });
-export const deleteClient = (id: number) => send<void>("DELETE", `/api/clients/${id}`);
-
-export const getUser = (id: number, signal: AbortSignal) => request<PublicUser | User>(`/api/users/${id}`, { signal });
-export const updateProfile = (id: number, changes: ProfileChanges) => send<User>("PATCH", `/api/users/${id}`, changes);

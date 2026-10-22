@@ -46,11 +46,6 @@ def start(client, with_subs):
     return mid
 
 
-def test_subtitles_are_closed_to_visitors(client):
-    assert client.get("/api/movies/1/subtitles").status_code == 401
-    assert client.get("/api/movies/1/subtitles/en").status_code == 401
-
-
 def test_a_movie_nobody_started_has_no_subtitles_yet(library):  # noqa: F811
     assert library.get(f"/api/movies/{sintel(library)}/subtitles").json() == []
 

@@ -8,16 +8,12 @@ from tests.test_films import FEED, xml  # noqa: F401
 
 @pytest.fixture
 def seen(logged_in, monkeypatch, session_factory):
-    """Ada (id 1) is logged in and has the films of the feed in the library; Bob (id 2) exists."""
+    """The member (id 1) has the films of the feed in the library."""
     async def fetch(q, indexer=None):
         return FEED
 
     monkeypatch.setattr(jackett, "fetch_xml", fetch)
     ids = {m["title"]: m["id"] for m in logged_in.get("/api/search", params={"limit": 100}).json()}
-    with session_factory() as s:
-        s.add(models.User(email="bob@example.com", username="bob", first_name="B", last_name="B", password_hash="x"))
-        s.commit()
-
     def watch(title_or_id, user=1, days_ago=0):
         movie_id = ids.get(title_or_id, title_or_id)
         with session_factory() as s:
@@ -34,10 +30,6 @@ def titles(client):
     return [m["title"] for m in res.json()]
 
 
-def test_continue_is_closed_to_visitors(client):
-    assert client.get("/api/continue").status_code == 401
-
-
 def test_a_member_who_watched_nothing_has_nothing_to_continue(seen):
     assert titles(seen) == []
 
@@ -47,11 +39,6 @@ def test_the_films_the_member_started_come_back_latest_first(seen):
     seen.watch("Dracula 1958", days_ago=1)
     seen.watch("Nosferatu 1922", days_ago=2)
     assert titles(seen) == ["Dracula 1958", "Nosferatu 1922", "Metropolis.1927.1080p"]
-
-
-def test_what_another_member_watched_is_not_shown(seen):
-    seen.watch("Dracula 1958", user=2)
-    assert titles(seen) == []
 
 
 def test_two_copies_of_a_film_are_one_thumbnail_marked_watched(seen):

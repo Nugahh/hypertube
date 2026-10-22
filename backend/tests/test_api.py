@@ -11,10 +11,6 @@ def _fake_fetch(xml):
     return fetch
 
 
-def test_the_library_is_closed_to_visitors(client):
-    assert client.get("/api/search").status_code == 401
-
-
 def test_search_never_leaks_the_jackett_api_key(logged_in, monkeypatch):
     monkeypatch.setattr(jackett, "fetch_xml", _fake_fetch(FEED))
     res = logged_in.get("/api/search", params={"q": "sintel"})

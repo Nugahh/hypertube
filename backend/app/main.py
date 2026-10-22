@@ -5,7 +5,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import auth, captions, catalog, clients, comments, jackett, maintenance, movies, oauth, tmdb, users
+from app import auth, captions, catalog, comments, jackett, maintenance, movies, tmdb, users
 from app.db import get_db, init_db
 from app.engine import get_engine
 from app.models import Bookmark, Movie, User, Watched
@@ -21,11 +21,9 @@ async def lifespan(_):
 
 app = FastAPI(title="Hypertube API", lifespan=lifespan)
 app.include_router(auth.router)
-app.include_router(oauth.router)
 app.include_router(users.router)
 app.include_router(movies.router)
 app.include_router(movies.front_page)
-app.include_router(clients.router)
 app.include_router(comments.router)
 app.include_router(captions.router)
 app.include_router(catalog.router)

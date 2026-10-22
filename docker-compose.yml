@@ -13,13 +13,6 @@ services:
       retries: 20
     restart: unless-stopped
 
-  # catches every email the app sends (password reset): read them at http://localhost:8025
-  mailpit:
-    image: axllent/mailpit:latest
-    ports:
-      - "127.0.0.1:8025:8025"
-    restart: unless-stopped
-
   jackett:
     image: lscr.io/linuxserver/jackett:latest
     environment:
@@ -35,30 +28,18 @@ services:
   backend:
     build: ./backend
     environment:
-      SECRET_KEY: ${SECRET_KEY:?missing from .env, run make up to create it}
       DATABASE_URL: postgresql+psycopg://hypertube:${POSTGRES_PASSWORD}@db:5432/hypertube
       JACKETT_URL: http://jackett:9117
       JACKETT_INDEXER: ${JACKETT_INDEXER:-all}
       JACKETT_EXTRA_INDEXERS: ${JACKETT_EXTRA_INDEXERS:-}
       JACKETT_API_KEY: ${JACKETT_API_KEY:-}
-      APP_URL: ${APP_URL:-http://localhost:3000}
-      FORTYTWO_CLIENT_ID: ${FORTYTWO_CLIENT_ID:-}
-      FORTYTWO_CLIENT_SECRET: ${FORTYTWO_CLIENT_SECRET:-}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       TMDB_API_KEY: ${TMDB_API_KEY:-}
       OPENSUBTITLES_API_KEY: ${OPENSUBTITLES_API_KEY:-}
       OPENSUBTITLES_USERNAME: ${OPENSUBTITLES_USERNAME:-}
       OPENSUBTITLES_PASSWORD: ${OPENSUBTITLES_PASSWORD:-}
-      SMTP_HOST: ${SMTP_HOST:-mailpit}
-      SMTP_PORT: ${SMTP_PORT:-1025}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      MAIL_FROM: ${MAIL_FROM:-Hypertube <no-reply@hypertube.local>}
     volumes:
       # the backend reads Jackett's API key from here when JACKETT_API_KEY is empty
       - ./data/jackett:/jackett-config:ro
-      - avatars:/srv/data/avatars
       - downloads:/srv/data/downloads  # the movies downloaded by the torrent engine
     ports:
       - "127.0.0.1:8000:8000"
@@ -70,19 +51,16 @@ services:
         condition: service_healthy
       jackett:
         condition: service_started
-      mailpit:
-        condition: service_started
     restart: unless-stopped
 
   frontend:
     build: ./frontend
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"  # nobody logs in: only this machine may open it
     depends_on:
       - backend
     restart: unless-stopped
 
 volumes:
   pgdata:
-  avatars:
   downloads:

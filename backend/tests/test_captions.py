@@ -15,13 +15,6 @@ def refs(client, mid):
     return [(s["ref"], s["lang"], s["source"]) for s in client.get(f"/api/movies/{mid}/subtitles").json()]
 
 
-def test_importing_is_closed_to_visitors(client):
-    assert client.post("/api/movies/1/subtitles", files={"file": ("a.srt", SRT)}).status_code == 401
-    assert client.delete("/api/movies/1/subtitles/1").status_code == 401
-    assert client.get("/api/movies/1/subtitles/search").status_code == 401
-    assert client.post("/api/movies/1/subtitles/opensubtitles", json={"file_id": 1, "lang": "en"}).status_code == 401
-
-
 def test_a_member_imports_an_srt_and_everyone_gets_it_as_webvtt(library):  # noqa: F811
     mid = sintel(library)
     res = upload(library, mid)
@@ -55,22 +48,6 @@ def test_a_movie_keeps_at_most_ten_imported_subtitles(library):  # noqa: F811
     mid = sintel(library)
     assert all(upload(library, mid).status_code == 201 for _ in range(10))
     assert upload(library, mid).status_code == 409
-
-
-def test_only_the_member_who_imported_a_subtitle_deletes_it(library):  # noqa: F811
-    from fastapi.testclient import TestClient
-
-    from app import main
-
-    mid = sintel(library)
-    ref = upload(library, mid).json()["ref"]
-    other = TestClient(main.app)
-    other.post("/api/auth/register", json={"email": "b@example.com", "username": "bob", "first_name": "B", "last_name": "B", "password": "Builder pass 1!"})
-    assert other.delete(f"/api/movies/{mid}/subtitles/{ref}").status_code == 403
-    assert [s["mine"] for s in other.get(f"/api/movies/{mid}/subtitles").json()] == [False]
-    assert library.delete(f"/api/movies/{mid}/subtitles/{ref}").status_code == 204
-    assert library.get(f"/api/movies/{mid}/subtitles/{ref}").status_code == 404
-    assert library.delete(f"/api/movies/{mid}/subtitles/{ref}").status_code == 404
 
 
 def test_the_list_mixes_torrent_and_imported_subtitles_english_first(library):  # noqa: F811

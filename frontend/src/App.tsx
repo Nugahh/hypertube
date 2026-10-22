@@ -1,17 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { getContinue, getDownloads, getShelf, logout, me, updateProfile, type Movie, type User } from "./api";
-import AccountMenu from "./AccountMenu";
+import { getContinue, getDownloads, getShelf, me, setLanguage, type Movie, type User } from "./api";
 import { Card } from "./Card";
 import Catalog from "./Catalog";
 import LangMenu from "./LangMenu";
-import AuthPage from "./AuthPage";
 import { errorText, useI18n } from "./i18n";
 import MovieModal from "./MovieModal";
-import ProfileModal from "./ProfileModal";
-import { Avatar } from "./ProfilePage";
-import ResetPage from "./ResetPage";
 import Shelf from "./Shelf";
-import Welcome from "./Welcome";
 import { useApi, type State } from "./useApi";
 
 type View = "home" | "films" | "series" | "list" | "favorites" | "downloads";
@@ -65,20 +59,14 @@ function Home({ round, onSelect }: { round: number; onSelect: (m: Movie) => void
   );
 }
 
-function Library({ user, onUserChange, onLogout }: {
-  user: User;
-  onUserChange: (u: User) => void;
-  onLogout: () => void;
-}) {
+function Library({ user, onUserChange }: { user: User; onUserChange: (u: User) => void }) {
   const { t, setLang } = useI18n();
-  // the language is the member's own: it follows them to another device
   const pickLang = (language: User["language"]) => {
     // the server answers in the language it has on record: it is saved first, then the site (and what it shows) changes
-    updateProfile(user.id, { language }).then(onUserChange).catch(() => setLang(language));
+    setLanguage(language).then(onUserChange).catch(() => setLang(language));
   };
   const [q, setQ] = useState("");
   const [view, setView] = useState<View>("home");
-  const [profileId, setProfileId] = useState<number | null>(null); // the member whose profile window is open
   const [selected, setSelected] = useState<Movie | null>(null);
   const [round, setRound] = useState(0); // counts the film windows closed: "continue watching" is asked again
   const closeMovie = () => {
@@ -87,16 +75,12 @@ function Library({ user, onUserChange, onLogout }: {
   };
   const searching = q.trim() !== "";
 
-  // Escape closes the window on top: the profile, else the movie sheet
+  // Escape closes the movie sheet
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (profileId !== null) setProfileId(null);
-      else closeMovie();
-    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeMovie();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [profileId]);
+  }, []);
 
   const shelf = (title: string, empty: string, load: (signal: AbortSignal) => Promise<Movie[]>, catalog?: "list" | "favorite") => (
     <Shelf key={view} title={title} empty={empty} load={load} catalog={catalog} round={round} onSelect={setSelected} />
@@ -140,7 +124,6 @@ function Library({ user, onUserChange, onLogout }: {
             />
           </label>
           <LangMenu onPick={pickLang} />
-          <AccountMenu user={user} onAccount={() => setProfileId(user.id)} onLogout={onLogout} />
         </div>
       </header>
 
@@ -151,58 +134,27 @@ function Library({ user, onUserChange, onLogout }: {
         <span>{t("footer.legal")} · {t("footer.credit")}</span>
       </footer>
 
-      {selected && <MovieModal key={selected.id} movie={selected} me={user} onClose={closeMovie} onProfile={setProfileId} />}
-      {profileId !== null && <ProfileModal id={profileId} me={user} onUpdate={onUserChange} onClose={() => setProfileId(null)} />}
+      {selected && <MovieModal key={selected.id} movie={selected} me={user} onClose={closeMovie} />}
     </>
   );
 }
 
-// the password-reset email links to /reset-password?token=…
-const resetTokenFromUrl = () =>
-  window.location.pathname === "/reset-password" ? new URLSearchParams(window.location.search).get("token") ?? "" : null;
-
-// the OAuth callback sends the visitor back to /?oauth_error=<code>; only known codes are shown
-const OAUTH_ERRORS = ["denied", "failed", "unavailable", "unverified"];
-const oauthErrorFromUrl = () => {
-  const code = new URLSearchParams(window.location.search).get("oauth_error");
-  return code === null ? null : OAUTH_ERRORS.includes(code) ? code : "failed";
-};
-
 export default function App() {
   const { t, setLang } = useI18n();
-  const [user, setUser] = useState<User | null | undefined>(undefined); // undefined: checking the session
-  const [resetToken, setResetToken] = useState(resetTokenFromUrl);
-  const [notice, setNotice] = useState<string>();
-  const [oauthError] = useState(oauthErrorFromUrl);
+  const [user, setUser] = useState<User>();
 
+  // the app's server may still be starting: ask again until it answers
   useEffect(() => {
-    if (oauthError) window.history.replaceState(null, "", "/"); // a reload must not show it again
-    me().then(setUser).catch(() => setUser(null));
-    const onUnauthorized = () => setUser(null);
-    window.addEventListener("unauthorized", onUnauthorized);
-    return () => window.removeEventListener("unauthorized", onUnauthorized);
+    let timer = 0;
+    const ask = () => me().then(setUser).catch(() => (timer = window.setTimeout(ask, 1000)));
+    ask();
+    return () => clearTimeout(timer);
   }, []);
 
-  // a member's saved language wins over the browser's last choice
   useEffect(() => {
     if (user) setLang(user.language);
   }, [user?.language]);
 
-  if (resetToken !== null) {
-    return (
-      <ResetPage
-        token={resetToken}
-        onDone={() => {
-          window.history.replaceState(null, "", "/");
-          setNotice(resetToken ? t("reset.done") : undefined);
-          setResetToken(null);
-        }}
-      />
-    );
-  }
-  if (user === undefined) return null;
-  if (user === null) return <AuthPage onAuth={setUser} notice={notice} error={oauthError ? t(`oauth.${oauthError}`) : undefined} />;
-  const signOut = () => logout().finally(() => setUser(null));
-  if (!user.welcomed) return <Welcome me={user} onDone={setUser} onLogout={signOut} />;
-  return <Library user={user} onUserChange={setUser} onLogout={signOut} />;
+  if (!user) return <p className="notice" role="status">{t("loading")}</p>;
+  return <Library user={user} onUserChange={setUser} />;
 }

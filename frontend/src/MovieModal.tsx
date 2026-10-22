@@ -76,7 +76,7 @@ function useStates(ids: number[]) {
   return [states, () => setRound((n) => n + 1)] as const;
 }
 
-export default function MovieModal({ movie, me, onClose, onProfile }: { movie: Movie; me: User; onClose: () => void; onProfile: (id: number) => void }) {
+export default function MovieModal({ movie, me, onClose }: { movie: Movie; me: User; onClose: () => void }) {
   const { t } = useI18n();
   const [playing, setPlaying] = useState(false);
   const [copy, setCopy] = useState(movie.resume?.id ?? movie.id); // the provider's copy that is played or downloaded: the one the member was watching
@@ -206,7 +206,7 @@ export default function MovieModal({ movie, me, onClose, onProfile }: { movie: M
               </div>
             </div>
           )}
-          <Comments movieId={movie.id} me={me} onProfile={onProfile} />
+          <Comments movieId={movie.id} me={me} />
         </div>
       </div>
     </div>

@@ -15,15 +15,10 @@ On the first run, `make up` creates the `.env` file with random secrets (never c
 | Site | http://localhost:3000 |
 | Jackett | http://localhost:9117 |
 | API | http://localhost:8000 |
-| Mailpit (emails sent by the app) | http://localhost:8025 |
 
 Open the site, create an account, then browse the catalogue (it is only available to logged-in users; it needs `TMDB_API_KEY`, see below). Jackett starts with no indexer: add some in its interface (http://localhost:9117, "Add indexer"). `JACKETT_INDEXER` in `.env` is `all` by default (every indexer added in Jackett), or the id of a single one. To search more indexers next to the main one, list their ids in `JACKETT_EXTRA_INDEXERS` (see `.env.example`); one that fails never hides the others, and each result shows the indexer it came from. Every indexer you add must be a legal source; it may give `.torrent` files or magnet links. The back reads Jackett's API key by itself.
 
-**Forgotten password:** click "Forgot password?" on the login page and type the account's email. The mail does not go to a real mailbox: it is caught by Mailpit, open http://localhost:8025 to read it and click the link (valid 1 hour, single use). For a real SMTP server, fill in the `SMTP_*` and `APP_URL` variables in `.env` (see `.env.example`).
-
-**Account menu:** the header shows only your profile picture; hovering or clicking it opens a menu with **Account** (a window over the page, not a page of its own: username, picture, email, language, API access) and **Sign out** (one click, from any page).
-
-**Language:** the interface is in English by default. Each member picks a language (English / Français) in their profile, visitors on the login page.
+**Language:** the interface is in English by default. The round flag in the header switches between English and Français; the choice is saved. Summaries, titles and genres of films come from TMDb in that language (kept in memory after the first request); TMDb's French list of series genres keeps seven English names, which the back translates.
 
 | Command | Effect |
 |---|---|
@@ -36,24 +31,9 @@ Open the site, create an account, then browse the catalogue (it is only availabl
 
 If Docker answers `permission denied`: `sudo usermod -aG docker $USER`, then log in again.
 
-## Accounts and security
+## One user, no login
 
-- Passwords are hashed with Argon2id and never stored or logged in clear text. A new password (sign-up, reset, profile) needs 8 to 128 characters with a **capital letter, a digit and a special character** (not a letter, digit or space); the sign-up form shows the rule, the back enforces it. Accounts made earlier with a weaker password can still log in.
-- Session through an `httpOnly` + `SameSite=Lax` cookie (signed with `SECRET_KEY`). Set `COOKIE_SECURE=true` once the site is served over HTTPS.
-- Log in with username + password; an unknown user and a wrong password get the same answer.
-- Forgotten password: a signed link valid for 1 hour and single use (it stops working as soon as the password changes). The answer is the same whether the account exists or not.
-- **First login:** a new account (sign-up, or first 42 / Google login) lands on a page of its own to pick its picture and type its username (the 42 / Google name is only a suggestion). It is shown once per account; accounts that existed before this page was added see it once too.
-- Profile (the **Account** window): everyone edits their own username, email, name, language and picture; other members' emails are never returned. The **Save** button saves and closes the window; the picture, like the language, is saved as soon as it is picked. There is no picture upload: the only pictures are the site's own (below).
-- **Default pictures:** a member without a picture gets one of the images listed in `frontend/public/avatars/index.json` (the same one every time, also for an account created with 42 or Google: the provider's photo is not kept), and picks another in the welcome page or in the profile. They are the 19 Dofus class symbols (from DofusDB, cropped to a square), © Ankama, used as fan content in a school project and credited in the footer: check Ankama's terms before publishing the project publicly. To add images, copy them into that folder and add a line to `index.json` (see `frontend/public/avatars/README.txt`; lowercase file names with hyphens).
-- Parameterized SQL queries (SQLAlchemy), forms validated on both the front and the back.
-- No migrations for now: the tables are created at startup.
-
-## Log in with 42 and Google
-
-- Create the applications at https://profile.intra.42.fr/oauth/applications/new (scope `public`) and https://console.cloud.google.com (OAuth client ID, "Web application"), then fill in `FORTYTWO_CLIENT_ID/SECRET` and `GOOGLE_CLIENT_ID/SECRET` in `.env`.
-- Redirect URIs to register: `APP_URL` + `/api/auth/42/callback` and `APP_URL` + `/api/auth/google/callback` (`http://localhost:3000/...` with `make up`). With `npm run dev`, set `APP_URL=http://localhost:5173` and register that address too.
-- An account is identified by the provider's own id. A **verified** email that already has an account joins that account; an unverified email is refused. A random `state` token (`httpOnly` cookie) protects the return trip against CSRF.
-- OAuth accounts have no password: they always sign in through the provider.
+This branch is for a program installed on one machine: nobody signs up or logs in, there are no passwords, emails, profiles or pictures. The back creates the only member the first time it is asked (named after the system's login name) and every route answers for them: favorites, my list, watched films, positions and comments are theirs. Because nothing protects the site, `docker-compose.yml` publishes it on `127.0.0.1` only (do not open the ports to a network). Still checked: the comment text (1 to 1000 characters), subtitle files (2 MB, `.srt`/`.vtt`), positions and every query parameter; SQL goes through SQLAlchemy.
 
 ## Sources and movie details
 
@@ -74,31 +54,6 @@ If Docker answers `permission denied`: `sudo usermod -aG docker $USER`, then log
   - *Subtitle style:* a second panel sets the look of the subtitles (size, font, colour, shadow, background); it is kept in the browser.
   - *Audio:* the tracks of the file are listed with their language and codec. The first one plays as it is; choosing another goes through the server's converter, which restarts the film at the current position and cannot be seeked ahead (the time bar then counts from the switch). Most films have a single track.
 - **Comments** on every movie sheet; only the author edits or deletes a comment.
-- **Members** tab and clickable authors open any member's profile (the email stays private).
-
-## REST API
-
-Base URL `http://localhost:8000/api` (also `http://localhost:3000/api` through the site). JSON, standard status codes, `Location` header on creation.
-
-1. In the **Account** window (profile picture menu), **API access** → create a client: you get a client id and a secret (shown once, max 5 per member, deleting a client revokes its tokens).
-2. `POST /api/oauth/token` with `grant_type=client_credentials&client_id=…&client_secret=…` (form, or HTTP Basic) returns `{"access_token", "token_type": "Bearer", "expires_in": 3600}`.
-3. Send `Authorization: Bearer <access_token>` on the other calls.
-
-| Route | Auth | Answer |
-|---|---|---|
-| `POST /api/oauth/token` | client + secret | token (401 `invalid_client`, 400 otherwise) |
-| `GET /api/movies` | none | the front page: top movies with `id`, `name` |
-| `GET /api/movies/:id` | token | name, id, rating, year, length, summary, cast, subtitles, comments count… |
-| `GET /api/users` | token | `id`, `username` of every member |
-| `GET /api/users/:id` | token | username, picture URL (+ email only for your own profile) |
-| `PATCH /api/users/:id` | token | username, email, password, picture URL, names, language; **403** for someone else's profile |
-| `GET /api/comments` | token | latest comments (author, date, content, id) |
-| `GET /api/comments/:id` | token | one comment |
-| `POST /api/comments` or `POST /api/movies/:id/comments` | token | creates a comment (201) |
-| `PATCH /api/comments/:id`, `DELETE /api/comments/:id` | token | author only (403 otherwise) |
-| `GET /api/movies/:id/comments` | token | comments of a movie |
-
-Anything else answers 404 (unknown route) or 405 (wrong method); no token answers 401.
 
 ## Video playback
 
@@ -122,7 +77,7 @@ The subject requires free or legally distributable sources. Only enable indexers
 # back (Python 3.12); without DATABASE_URL, a local SQLite database is used
 cd backend && pip install -r requirements.txt
 pytest
-SECRET_KEY=dev JACKETT_URL=http://localhost:9117 JACKETT_API_KEY=<key> uvicorn app.main:app --reload
+JACKETT_URL=http://localhost:9117 JACKETT_API_KEY=<key> uvicorn app.main:app --reload
 
 # front (proxies /api to localhost:8000)
 cd frontend && npm install && npm run dev

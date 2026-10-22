@@ -16,37 +16,9 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(30), unique=True)
     first_name: Mapped[str] = mapped_column(String(50))
     last_name: Mapped[str] = mapped_column(String(50))
-    # None for accounts created through OAuth: they have no password to check
-    password_hash: Mapped[str | None] = mapped_column(String(255))
     language: Mapped[str] = mapped_column(String(5), default="en")
     avatar_url: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    # a row of its own, not a column: the tables are created at startup, never altered
-    welcome: Mapped["Welcomed | None"] = relationship(lazy="joined", cascade="all, delete-orphan")
-
-    @property
-    def welcomed(self):
-        return self.welcome is not None
-
-
-class Welcomed(Base):
-    """A member who went through the first-login page (picture and username): it is shown once per account."""
-
-    __tablename__ = "welcomed"
-
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-
-
-class OAuthAccount(Base):
-    """An identity at an OAuth provider (42, Google) tied to a member: the provider's own id, never the email, identifies it."""
-
-    __tablename__ = "oauth_accounts"
-    __table_args__ = (UniqueConstraint("provider", "subject"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    provider: Mapped[str] = mapped_column(String(20))
-    subject: Mapped[str] = mapped_column(String(100))
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
 
 
 class Movie(Base):
@@ -167,19 +139,6 @@ class Bookmark(Base):
     movie_id: Mapped[int] = mapped_column(ForeignKey("movies.id", ondelete="CASCADE"), primary_key=True)
     kind: Mapped[str] = mapped_column(String(8), primary_key=True)  # list | favorite
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-
-
-class ApiClient(Base):
-    """Credentials a member creates so a program can use the API in their name (OAuth2 client credentials)."""
-
-    __tablename__ = "api_clients"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    name: Mapped[str] = mapped_column(String(50))
-    client_id: Mapped[str] = mapped_column(String(32), unique=True)
-    secret_hash: Mapped[str] = mapped_column(String(64))  # the secret itself is shown once and never stored
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class ExtraSubtitle(Base):

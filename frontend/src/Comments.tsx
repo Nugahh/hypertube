@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { deleteComment, editComment, getComments, postComment, type MovieComment, type User } from "./api";
 import { errorText, useI18n } from "./i18n";
-import { Avatar } from "./ProfilePage";
 import { useApi } from "./useApi";
 
 const MAX = 1000; // same limit as the backend
@@ -42,7 +41,7 @@ function CommentForm({ initial = "", submit, cancel, label }: { initial?: string
 }
 
 // the comments of a movie: anyone logged in reads and posts, the author edits and deletes (the server checks it too)
-export default function Comments({ movieId, me, onProfile }: { movieId: number; me: User; onProfile: (id: number) => void }) {
+export default function Comments({ movieId, me }: { movieId: number; me: User }) {
   const { t, lang } = useI18n();
   const [round, setRound] = useState(0);
   const [editing, setEditing] = useState<number | null>(null);
@@ -76,10 +75,9 @@ export default function Comments({ movieId, me, onProfile }: { movieId: number; 
       <ul>
         {list.data.map((c) => (
           <li key={c.id} className="comment">
-            <Avatar user={{ id: c.user_id, username: c.username, avatar_url: c.avatar_url }} size={32} />
             <div className="comment-main">
               <div className="comment-head">
-                <button className="comment-author" onClick={() => onProfile(c.user_id)}>{c.username}</button>
+                <span className="comment-author">{c.username}</span>
                 <time dateTime={c.date}>{new Date(c.date).toLocaleDateString(lang)}</time>
                 {c.edited && <span className="notice">({t("comments.edited")})</span>}
               </div>

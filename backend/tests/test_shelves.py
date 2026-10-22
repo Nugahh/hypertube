@@ -18,13 +18,6 @@ def shelf(client, kind):
     return [m["title"] for m in res.json()]
 
 
-def test_every_shelf_route_is_closed_to_visitors(client):
-    assert client.put("/api/movies/1/bookmarks/list").status_code == 401
-    assert client.delete("/api/movies/1/bookmarks/favorite").status_code == 401
-    assert client.get("/api/bookmarks/list").status_code == 401
-    assert client.get("/api/downloads").status_code == 401
-
-
 def test_a_film_goes_in_and_out_of_my_list(films):
     metro = ids(films)["Metropolis.1927.1080p"]
     assert shelf(films, "list") == []
@@ -57,16 +50,6 @@ def test_an_unknown_film_or_shelf_is_refused(films):
     assert films.put("/api/movies/999/bookmarks/list").status_code == 404
     assert films.put("/api/movies/1/bookmarks/nope").status_code == 422
     assert films.get("/api/bookmarks/nope").status_code == 422
-
-
-def test_each_member_has_their_own_shelves(films):
-    metro = ids(films)["Metropolis.1927.1080p"]
-    films.put(f"/api/movies/{metro}/bookmarks/list")
-    bob = TestClient(main.app)
-    assert bob.post("/api/auth/register", json=BOB).status_code == 201
-    assert shelf(bob, "list") == []
-    bob.put(f"/api/movies/{metro}/bookmarks/favorite")
-    assert shelf(films, "favorite") == [] and shelf(films, "list") == ["Metropolis.1927.1080p"]
 
 
 def test_the_latest_addition_comes_first(films):

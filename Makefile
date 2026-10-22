@@ -2,10 +2,10 @@
 
 all: up
 
-# first run: create .env with random secrets
+# first run: create .env with a random database password
 .env:
 	cp .env.example .env
-	sed -i "s/^SECRET_KEY=.*/SECRET_KEY=$$(openssl rand -hex 32)/; s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$$(openssl rand -hex 16)/" .env
+	sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$$(openssl rand -hex 16)/" .env
 
 # data/jackett is created here so it belongs to you, not to root (Docker would create it as root)
 up: .env

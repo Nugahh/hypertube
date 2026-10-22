@@ -76,10 +76,6 @@ def library_with(logged_in, monkeypatch, tmp_path, clip, name):
     return next(m["id"] for m in logged_in.get("/api/search").json() if m["title"] == "Sintel.2010.720p")
 
 
-def test_the_audio_routes_are_closed_to_visitors(client):
-    assert client.get("/api/movies/1/audio").status_code == 401
-
-
 @needs_ffmpeg
 def test_the_route_lists_the_audio_tracks_of_the_movie(logged_in, clips, monkeypatch, tmp_path):
     movie = library_with(logged_in, monkeypatch, tmp_path, clips["two.mp4"], "movie.mp4")

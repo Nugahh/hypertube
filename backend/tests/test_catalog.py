@@ -48,16 +48,10 @@ def discovered(fake):
     return [r for r in fake.calls if "/discover/" in r.url.path]
 
 
-def test_the_catalogue_is_closed_to_visitors(client):
-    assert client.get("/api/catalog").status_code == 401
-    assert client.get("/api/catalog/genres").status_code == 401
-    assert client.get("/api/catalog/movie/603").status_code == 401
-
-
 def test_the_genres_are_tmdbs_in_the_members_language(api):
     assert api.get("/api/catalog/genres", params={"kind": "movie"}).json() == [{"id": 28, "name": "Action"}, {"id": 80, "name": "Crime"}]
     assert api.fake.calls[-1].url.params["language"] == "en-US"
-    api.patch("/api/users/1", json={"language": "fr"})
+    api.patch("/api/users/me", json={"language": "fr"})
     api.get("/api/catalog/genres", params={"kind": "series"})  # not a kind
     api.get("/api/catalog/genres", params={"kind": "tv"})
     assert api.fake.calls[-1].url.params["language"] == "fr-FR"
@@ -208,14 +202,12 @@ def test_the_original_name_is_asked_too(providers, monkeypatch):
     assert providers.providers.asked == ["Parasite", "기생충"]
 
 
-def test_copies_need_a_member_and_tmdb_and_the_providers(providers, client, monkeypatch):
+def test_copies_need_tmdb_and_the_providers(providers, monkeypatch):
     providers.providers.error = jackett.JackettError("Jackett unavailable")
     assert providers.get("/api/catalog/movie/603/copies").status_code == 502
     assert providers.get("/api/catalog/movie/1/copies").status_code == 404
     monkeypatch.delenv("TMDB_API_KEY")
     assert providers.get("/api/catalog/movie/603/copies").status_code == 501
-    client.cookies.clear()
-    assert client.get("/api/catalog/movie/603/copies").status_code == 401
 
 
 def test_a_catalogue_title_goes_to_the_list_and_the_favorites_and_comes_back(api):
@@ -234,7 +226,7 @@ def test_a_catalogue_title_goes_to_the_list_and_the_favorites_and_comes_back(api
 def test_a_shelf_says_its_titles_in_the_members_language(api):
     api.get("/api/catalog?kind=movie")
     api.put("/api/catalog/movie/603/bookmarks/list")
-    assert api.patch("/api/users/1", json={"language": "fr"}).status_code == 200
+    assert api.patch("/api/users/me", json={"language": "fr"}).status_code == 200
     [item] = api.get("/api/catalog/bookmarks/list").json()
     assert item["overview"] == DETAILS["overview"] and item["genres"] == ["Action"]
     asked = [r.url.params["language"] for r in api.fake.calls if r.url.path.endswith("/movie/603")]

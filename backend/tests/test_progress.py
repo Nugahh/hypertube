@@ -16,10 +16,6 @@ def save(client, movie_id, position, duration):
     return client.put(f"/api/movies/{movie_id}/progress", json={"position": position, "duration": duration})
 
 
-def test_saving_a_position_is_closed_to_visitors(client):
-    assert client.put("/api/movies/1/progress", json={"position": 1, "duration": 2}).status_code == 401
-
-
 def test_the_position_is_kept_and_follows_the_film(seen):
     seen.watch(METRO)
     assert played(seen) == {METRO: None}  # nothing saved yet: no bar
@@ -55,14 +51,6 @@ def test_an_unknown_film_is_a_404(seen):
     assert save(seen, 999, 1, 2).status_code == 404
 
 
-def test_each_member_has_their_own_position(seen):
-    seen.watch(METRO)
-    bob = TestClient(main.app)
-    assert bob.post("/api/auth/register", json={**BOB, "email": "carol@example.com", "username": "carol"}).status_code == 201
-    save(bob, seen.ids[METRO], 100, 120)
-    assert played(seen) == {METRO: None}
-
-
 def card(client, title=METRO):
     return next(m for m in client.get("/api/search", params={"limit": 100}).json() if m["title"] == title)
 
@@ -84,10 +72,3 @@ def test_the_copy_the_member_watched_is_the_one_the_film_resumes_on(seen):
 def test_a_film_watched_to_the_end_starts_again_from_the_beginning(seen):
     save(seen, seen.ids[METRO], 119, 120)
     assert (card(seen)["resume"], card(seen)["finished"]) == (None, True)
-
-
-def test_the_position_is_the_members_own(seen):
-    save(seen, seen.ids[METRO], 30, 120)
-    carol = TestClient(main.app)
-    assert carol.post("/api/auth/register", json={**BOB, "email": "carol@example.com", "username": "carol"}).status_code == 201
-    assert (card(carol)["resume"], card(carol)["finished"]) == (None, False)

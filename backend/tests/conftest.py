@@ -1,8 +1,3 @@
-import os
-
-# must be set before the app is imported
-os.environ.setdefault("SECRET_KEY", "test-secret-key-not-for-production")
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -10,14 +5,6 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app import db, main, movies, tmdb
-
-USER = {
-    "email": "Ada@Example.com",
-    "username": "Ada_L",
-    "first_name": "Ada",
-    "last_name": "Lovelace",
-    "password": "Correct horse 42!",
-}
 
 
 @pytest.fixture(autouse=True)
@@ -46,5 +33,6 @@ def client(session_factory):
 
 @pytest.fixture
 def logged_in(client):
-    assert client.post("/api/auth/register", json=USER).status_code == 201
+    """Nobody logs in: the one member exists from the first request (kept under this name by the tests)."""
+    assert client.get("/api/auth/me").status_code == 200
     return client

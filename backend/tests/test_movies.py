@@ -49,12 +49,6 @@ def test_search_gives_stable_numeric_ids(library):
     assert again["Sintel.2010.720p"] == first["Sintel.2010.720p"]
 
 
-def test_every_movie_route_is_closed_to_visitors(client):
-    assert client.get("/api/movies/1").status_code == 401
-    assert client.get("/api/movies/1/stream").status_code == 401
-    assert client.post("/api/movies/1/download").status_code == 401
-
-
 def test_movie_details_show_the_state_and_never_the_provider_link(library):
     detail = library.get(f"/api/movies/{sintel(library)}").json()
     assert detail["title"] == "Sintel.2010.720p" and detail["year"] == 2010 and detail["resolution"] == "720p"
