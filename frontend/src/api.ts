@@ -121,6 +121,14 @@ export const me = () => request<User>("/api/auth/me");
 export type Settings = { cache_days: number; library_dir: string };
 export const getSettings = (signal: AbortSignal) => request<Settings>("/api/settings", { signal });
 export const setCacheDays = (cache_days: number) => send<Settings>("PATCH", "/api/settings", { cache_days });
+// the search sources (Jackett indexers): the member adds the ones they want
+export type SearchSource = { id: string; name: string; description: string | null; language: string | null; type: "public" | "semi-private" | "private"; configured: boolean };
+export type SourceField = { id: string; name: string; type: string; value: unknown; options: Record<string, string> | null };
+export const listSources = (signal: AbortSignal) => request<SearchSource[]>("/api/sources", { signal });
+export const getSourceConfig = (id: string) => request<SourceField[]>(`/api/sources/${id}/config`);
+export const addSource = (id: string, values: Record<string, unknown>) => send<void>("PUT", `/api/sources/${id}`, { values });
+export const removeSource = (id: string) => send<void>("DELETE", `/api/sources/${id}`);
+export const testSource = (id: string) => send<{ ok: boolean; error?: string }>("POST", `/api/sources/${id}/test`);
 export const setLanguage = (language: User["language"]) => send<User>("PATCH", "/api/users/me", { language });
 
 export const getMovie = (id: number, signal: AbortSignal) => request<MovieDetails>(`/api/movies/${id}`, { signal });

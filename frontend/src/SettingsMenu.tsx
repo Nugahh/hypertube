@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getSettings, setCacheDays, type Settings } from "./api";
 import { errorText, useI18n } from "./i18n";
 import { GearIcon } from "./icons";
+import SourcesModal from "./SourcesModal";
 
 const DAYS = [1, 3, 7, 30, 0]; // 0: never
 
@@ -11,6 +12,7 @@ export default function SettingsMenu() {
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sources, setSources] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -58,9 +60,11 @@ export default function SettingsMenu() {
             <code>{settings?.library_dir ?? "…"}</code>
             <small>{t("settings.library.help")}</small>
           </div>
+          <button className="btn-link" onClick={() => { setSources(true); setOpen(false); }}>{t("sources.open")}</button>
           {error && <p className="form-error" role="alert">{error}</p>}
         </div>
       )}
+      {sources && <SourcesModal onClose={() => setSources(false)} />}
     </div>
   );
 }

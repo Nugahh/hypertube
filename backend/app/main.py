@@ -5,7 +5,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import auth, captions, catalog, comments, jackett, maintenance, movies, settings, tmdb, users
+from app import auth, captions, catalog, comments, jackett, maintenance, movies, settings, sources, tmdb, users
 from app.db import get_db, init_db
 from app.engine import get_engine
 from app.models import Bookmark, Movie, User, Watched
@@ -28,6 +28,7 @@ app.include_router(comments.router)
 app.include_router(captions.router)
 app.include_router(catalog.router)
 app.include_router(settings.router)
+app.include_router(sources.router)
 
 
 async def _shelf(db, user, rows, limit, others=True):

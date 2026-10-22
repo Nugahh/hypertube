@@ -66,6 +66,10 @@ This branch is for a program installed on one machine: nobody signs up or logs i
 - **Streaming and downloading are two things.** Playing a film downloads it into a cache (`data/downloads`) so that it can start early and seek; a film that was only streamed is erased from the cache after 3 days unwatched (`CACHE_DAYS`). The **download button** of a copy is for the films you want to keep: it fills while the torrent downloads, then the file moves to your library folder, `~/Desktop/hypertube` by default (`LIBRARY_DIR` in `.env`; with Docker the folder is mounted into the back), and a tick shows. Films in the library are never cleaned up: the cross on the tick deletes the file (after a confirmation), the cross while downloading cancels and deletes what arrived. The **Downloads** tab lists only the films you chose to download. The **gear** in the header sets how long the cache keeps a streamed film (1, 3, 7, 30 days or never; saved in the database) and shows the library folder. A download you asked for that was running when the app was closed starts again by itself: the back looks for them every minute.
 - BitTorrent port 6881 (TCP and UDP) must be reachable from the Internet to find and serve peers.
 
+## Search sources
+
+The gear in the header opens **Search sources**: the sources the search looks in (Jackett's indexers) are added and removed there, with no need for Jackett's own pages. The list shows the ones you have and a catalogue of the hundreds Jackett knows (public ones by default, with a search box); a public source is added in one click, one that needs an account asks for its settings first, and each of yours has a **Test** button. The back does it through Jackett's web API (`/api/sources`, it needs no admin password); a source you add is searched at once (`JACKETT_INDEXER=all`). Which sources you use, and whether their content may be downloaded where you live, is your responsibility.
+
 ## Legal sources only
 
 The subject requires free or legally distributable sources. Only enable indexers of that kind in Jackett.
