@@ -114,3 +114,12 @@ def test_a_film_the_member_downloaded_is_never_cleaned_up(lib):
     lib.commit()
     assert purge(lib) == 0
     assert (lib.engine.download_dir / mine.file_path).exists()
+
+
+def test_a_cache_setting_of_zero_is_read_back(lib):
+    from app import settings
+
+    lib.movie("old.mp4", watched=days(100), ready=days(100))
+    lib.add(models.Setting(key=settings.CACHE_DAYS, value="0"))
+    lib.commit()
+    assert settings.cache_days(lib) == 0

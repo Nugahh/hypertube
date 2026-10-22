@@ -119,6 +119,15 @@ class CatalogBookmark(Base):
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class Setting(Base):
+    """One setting of the member (key, value as text)."""
+
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String(40), primary_key=True)
+    value: Mapped[str] = mapped_column(String(200))
+
+
 class Progress(Base):
     """Where a member is in a movie: the player reports it every few seconds ("continue watching" shows a bar)."""
 

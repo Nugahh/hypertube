@@ -3,6 +3,7 @@ import { getContinue, getDownloads, getShelf, me, setLanguage, type Movie, type 
 import { Card } from "./Card";
 import Catalog from "./Catalog";
 import LangMenu from "./LangMenu";
+import SettingsMenu from "./SettingsMenu";
 import { errorText, useI18n } from "./i18n";
 import MovieModal from "./MovieModal";
 import Shelf from "./Shelf";
@@ -123,6 +124,7 @@ function Library({ user, onUserChange }: { user: User; onUserChange: (u: User) =
               onChange={(e) => setQ(e.target.value)}
             />
           </label>
+          <SettingsMenu />
           <LangMenu onPick={pickLang} />
         </div>
       </header>

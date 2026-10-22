@@ -30,6 +30,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://hypertube:${POSTGRES_PASSWORD}@db:5432/hypertube
       LIBRARY_DIR: /srv/data/library
+      LIBRARY_LABEL: ${LIBRARY_DIR:-${HOME}/Desktop/hypertube}
       JACKETT_URL: http://jackett:9117
       JACKETT_INDEXER: ${JACKETT_INDEXER:-all}
       JACKETT_EXTRA_INDEXERS: ${JACKETT_EXTRA_INDEXERS:-}

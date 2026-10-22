@@ -296,6 +296,16 @@ async def get_movie(movie_id: int, user: User = Depends(current_user), db: Sessi
 _audio_cache = {}  # movie id -> its audio tracks. shortcut: per process, and probed once
 
 
+async def resume(db, engine):
+    """Start again the torrents of the films the member chose to download that were running when the app was closed."""
+    for movie in db.scalars(select(Movie).where(Movie.kept, Movie.status == "downloading")).all():
+        if engine.get(movie.infohash) is None:
+            try:
+                await _open_source(db, engine, movie)
+            except HTTPException:
+                pass  # the provider cannot be asked right now: the next round tries again
+
+
 @router.get("/{movie_id}/audio")
 async def audio_tracks(movie_id: int, db: Session = Depends(get_db), engine=Depends(get_engine)):
     movie = _movie(db, movie_id)

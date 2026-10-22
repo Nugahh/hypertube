@@ -1,18 +1,16 @@
 """Background upkeep: notice finished downloads, empty the cache of the films only streamed and not watched for a few days."""
 import asyncio
 import logging
-import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy import select
 
-from app import movies
+from app import movies, settings
 from app.db import SessionLocal
 from app.engine import get_engine
 from app.models import Movie
 
-MAX_AGE = timedelta(days=int(os.getenv("CACHE_DAYS", "3")))  # a film that was only streamed (not downloaded by the member) goes after this long unwatched
 EVERY = 60  # seconds between two rounds
 
 
@@ -25,7 +23,7 @@ def _aware(moment):
     return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)  # SQLite hands back naive datetimes
 
 
-def purge_unwatched(db, engine, now=None, max_age=MAX_AGE):
+def purge_unwatched(db, engine, now=None, max_age=timedelta(days=settings.DEFAULT_CACHE_DAYS)):
     """Erase the cache copies (films only streamed, never downloaded by the member) not watched for `max_age`, counted from the
     download if never watched. The films the member keeps stay for good.
 
@@ -48,6 +46,8 @@ def purge_unwatched(db, engine, now=None, max_age=MAX_AGE):
 async def loop():
     while True:
         try:
+            with SessionLocal() as db:
+                await movies.resume(db, get_engine())  # before the cleanup: a download the member wants is not a cache copy
             await asyncio.to_thread(_round)
         except Exception:
             logging.getLogger("uvicorn.error").exception("maintenance round failed")
@@ -58,4 +58,6 @@ def _round():
     with SessionLocal() as db:
         engine = get_engine()
         sync_downloads(db, engine)
-        purge_unwatched(db, engine)
+        days = settings.cache_days(db)
+        if days:  # 0: the cache is never cleaned up
+            purge_unwatched(db, engine, max_age=timedelta(days=days))

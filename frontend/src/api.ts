@@ -118,6 +118,9 @@ export const getContinue = (signal: AbortSignal) => request<Movie[]>("/api/conti
 
 // null when nobody is logged in (not an error, so the console stays clean)
 export const me = () => request<User>("/api/auth/me");
+export type Settings = { cache_days: number; library_dir: string };
+export const getSettings = (signal: AbortSignal) => request<Settings>("/api/settings", { signal });
+export const setCacheDays = (cache_days: number) => send<Settings>("PATCH", "/api/settings", { cache_days });
 export const setLanguage = (language: User["language"]) => send<User>("PATCH", "/api/users/me", { language });
 
 export const getMovie = (id: number, signal: AbortSignal) => request<MovieDetails>(`/api/movies/${id}`, { signal });

@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from app import engine as engine_module
-from app import jackett, main, models
+from app import jackett, main, models, movies
 from tests.fakes import TORRENT_A, TORRENT_B, FakeEngine
 from tests.test_jackett import FEED
 
@@ -286,3 +286,23 @@ def test_a_downloaded_film_ends_in_the_library_and_a_streamed_one_stays_in_the_c
 
     library.delete(f"/api/movies/{streamed}/file")
     assert not any(library.engine.library_dir.rglob("*.mp4"))
+
+
+def test_the_cache_setting_is_kept(library, monkeypatch):
+    monkeypatch.delenv("LIBRARY_LABEL", raising=False)  # set by docker compose
+    assert library.get("/api/settings").json()["cache_days"] == 3
+    assert library.patch("/api/settings", json={"cache_days": 7}).json()["cache_days"] == 7
+    assert library.get("/api/settings").json() == {"cache_days": 7, "library_dir": str(library.engine.library_dir)}
+    assert library.patch("/api/settings", json={"cache_days": -1}).status_code == 422
+
+
+def test_a_download_the_member_asked_for_starts_again_after_a_restart(library, session_factory):
+    library.engine.ready = 1000  # not finished
+    kept, streamed = sintel(library), movie_id(library, "Big Buck Bunny")
+    library.post(f"/api/movies/{kept}/download")
+    library.get(f"/api/movies/{streamed}/stream", headers={"Range": "bytes=0-9"})
+    library.engine.torrents.clear()
+    library.engine.added.clear()  # the app was closed
+    with session_factory() as s:
+        asyncio.run(movies.resume(s, library.engine))
+    assert library.engine.added == [TORRENT_A]  # only the film the member chose to download
