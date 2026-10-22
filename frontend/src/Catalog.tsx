@@ -1,28 +1,33 @@
 import { useEffect, useRef, useState } from "react";
-import { getCatalog, getCatalogCopies, getCatalogGenres, getCatalogSheet, type CatalogItem, type CatalogKind, type Movie } from "./api";
+import { getCatalog, getCatalogCopies, setCatalogBookmark, getCatalogGenres, getCatalogSheet, type CatalogItem, type CatalogKind, type Movie } from "./api";
+import { Marks } from "./Card";
 import { gradient } from "./format";
+import { LetterboxdLink } from "./logos";
 import { errorText, useI18n } from "./i18n";
 import { useApi, useInfinite } from "./useApi";
 
 const KINDS: [CatalogKind, string][] = [["movie", "catalog.movies"], ["tv", "catalog.series"]];
 
 // a title of the catalogue: its poster, name, year and TMDb rating
-function Poster({ item, onSelect }: { item: CatalogItem; onSelect: (i: CatalogItem) => void }) {
+export function Poster({ item, onSelect }: { item: CatalogItem; onSelect: (i: CatalogItem) => void }) {
   const { t } = useI18n();
   const art = item.poster ? `url(${item.poster}), ${gradient(item.id)}` : gradient(item.id);
   return (
-    <button className="card" style={{ backgroundImage: art }} onClick={() => onSelect(item)}>
-      {item.rating !== null && <span className="rating" title={t("card.rating")}>★ {item.rating.toFixed(1)}</span>}
+    <div className="card" style={{ backgroundImage: art }}>
+      <button className="open" aria-label={item.title} onClick={() => onSelect(item)} />
       <span className="ttl">
         {item.title}
         <span className="sub">{item.year ?? t("year.unknown")}</span>
       </span>
-    </button>
+      <Marks favorite={item.favorite} listed={item.listed} save={(kind, on) => setCatalogBookmark(item, kind, on)}>
+        {item.rating !== null && <span className="rating" title={t("card.rating")}>★ {item.rating.toFixed(1)}</span>}
+      </Marks>
+    </div>
   );
 }
 
 // what TMDb says of a title while the providers are asked for it; as soon as one has the film, the film's own window takes over
-function Sheet({ item, onClose, onFound }: { item: CatalogItem; onClose: () => void; onFound: (m: Movie) => void }) {
+export function Sheet({ item, onClose, onFound }: { item: CatalogItem; onClose: () => void; onFound: (m: Movie) => void }) {
   const { t } = useI18n();
   const sheet = useApi((signal) => getCatalogSheet(item.kind, item.id, signal), null, [item.kind, item.id]);
   // the providers' copies of a film (series have none yet)
@@ -49,6 +54,7 @@ function Sheet({ item, onClose, onFound }: { item: CatalogItem; onClose: () => v
             <div className="meta">
               {[item.year, d?.runtime ? t("modal.runtime", { n: d.runtime }) : null, item.rating !== null ? `★ ${item.rating.toFixed(1)}` : null].filter(Boolean).join(" · ")}
             </div>
+            {item.kind === "movie" && <div className="m-actions"><LetterboxdLink tmdbId={item.id} /></div>}
             {item.genres.length > 0 && <div className="genres">{item.genres.map((g) => <span key={g} className="chip static">{g}</span>)}</div>}
             {item.overview && <p className="overview">{item.overview}</p>}
             {sheet.error ? <p className="form-error" role="alert">{errorText(t, sheet.error)}</p> : null}
@@ -72,13 +78,13 @@ function Sheet({ item, onClose, onFound }: { item: CatalogItem; onClose: () => v
 // every film or series TMDb lists, by popularity and by genre, or finds for the typed words (`q`): it keeps loading as the
 // member scrolls. A fixed `kind` (the Films and Series tabs) hides the choice between the two.
 export default function Catalog({ onSelect, kind: fixed, q = "" }: { onSelect: (m: Movie) => void; kind?: CatalogKind; q?: string }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [picked, setKind] = useState<CatalogKind>("movie");
   const kind = fixed ?? picked;
   const [genre, setGenre] = useState<number>();
   const [open, setOpen] = useState<CatalogItem | null>(null);
-  const genres = useApi((signal) => getCatalogGenres(kind, signal), [], [kind]);
-  const pages = useInfinite<CatalogItem>((page, signal) => getCatalog(kind, q ? undefined : genre, q, page, signal), [kind, genre, q], q ? 350 : 0);
+  const genres = useApi((signal) => getCatalogGenres(kind, signal), [], [kind, lang]); // the genres and summaries come in the site's language
+  const pages = useInfinite<CatalogItem>((page, signal) => getCatalog(kind, q ? undefined : genre, q, page, signal), [kind, genre, q, lang], q ? 350 : 0);
 
   // while the end marker is on screen, load the next page (same as the library grid)
   const end = useRef<HTMLDivElement>(null);

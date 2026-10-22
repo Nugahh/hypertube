@@ -44,6 +44,7 @@ export type MovieDetails = Movie & {
   overview: string | null;
   runtime: number | null; // minutes
   language: string | null; // original language of the video
+  tmdb_id: number | null; // a film's id at TMDb, null for what TMDb does not know
   genres: string[];
   directors: string[];
   producers: string[];
@@ -101,7 +102,7 @@ const send = <T>(method: string, url: string, body?: unknown) =>
 
 // the TMDb catalogue: titles to look through; a film opens on the copies the providers have of it
 export type CatalogKind = "movie" | "tv";
-export type CatalogItem = { kind: CatalogKind; id: number; title: string; year: number | null; rating: number | null; poster: string | null; overview: string | null; genres: string[] };
+export type CatalogItem = { kind: CatalogKind; id: number; title: string; year: number | null; rating: number | null; poster: string | null; overview: string | null; genres: string[]; favorite?: boolean; listed?: boolean };
 export type CatalogSheet = { runtime: number | null; directors: string[]; producers: string[]; cast: string[] };
 export const getCatalogGenres = (kind: CatalogKind, signal: AbortSignal) => request<{ id: number; name: string }[]>(`/api/catalog/genres?kind=${kind}`, { signal });
 export const getCatalogSheet = (kind: CatalogKind, id: number, signal: AbortSignal) => request<CatalogSheet>(`/api/catalog/${kind}/${id}`, { signal });
@@ -114,6 +115,9 @@ export function getCatalog(kind: CatalogKind, genre: number | undefined, q: stri
   if (q) params.set("q", q);
   return request<{ items: CatalogItem[]; page: number; total: number; has_more: boolean }>(`/api/catalog?${params}`, { signal });
 }
+// a catalogue title in the favorites or in my list (a film is only a copy once a provider has it: TMDb's id is always there)
+export const setCatalogBookmark = (item: CatalogItem, kind: Shelf, on: boolean) => send<void>(on ? "PUT" : "DELETE", `/api/catalog/${item.kind}/${item.id}/bookmarks/${kind}`);
+export const getCatalogShelf = (kind: Shelf, signal: AbortSignal) => request<CatalogItem[]>(`/api/catalog/bookmarks/${kind}`, { signal });
 export const getShelf = (kind: Shelf, signal: AbortSignal) => request<Movie[]>(`/api/bookmarks/${kind}`, { signal });
 // the player says where the member is, so the film can show a bar in "continue watching"
 export const saveProgress = (id: number, position: number, duration: number) => send<void>("PUT", `/api/movies/${id}/progress`, { position, duration });
@@ -131,6 +135,11 @@ export const forgotPassword = (email: string) => send<void>("POST", "/api/auth/f
 export const resetPassword = (token: string, password: string) => send<void>("POST", "/api/auth/reset", { token, password });
 
 export const getMovie = (id: number, signal: AbortSignal) => request<MovieDetails>(`/api/movies/${id}`, { signal });
+export const cancelDownload = (id: number) => send<MovieDetails>("DELETE", `/api/movies/${id}/download`);
+export const deleteFile = (id: number) => send<MovieDetails>("DELETE", `/api/movies/${id}/file`);
+export type CopyState = { state: "idle" | "downloading" | "ready"; progress: number };
+// the download of each copy (by id), for the buttons of all the providers at once
+export const getStates = (ids: number[], signal: AbortSignal) => request<Record<number, CopyState>>(`/api/movies/states?ids=${ids.join(",")}`, { signal });
 export const startDownload = (id: number) => send<MovieDetails>("POST", `/api/movies/${id}/download`);
 // another audio track, or a restart from `start` seconds, goes through the server's converter
 export const streamUrl = (id: number, audio = 0, start = 0) => `/api/movies/${id}/stream${audio || start ? `?audio=${audio}&start=${start}` : ""}`;

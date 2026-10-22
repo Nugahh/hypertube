@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { getAudio, saveProgress, streamUrl, subtitleUrl, type AudioTrack, type Movie, type MovieDetails } from "./api";
 import { clock, formatSize } from "./format";
 import { useI18n } from "./i18n";
-import { BackIcon, ExitFullscreenIcon, ForwardIcon, FullscreenIcon, MuteIcon, PauseIcon, PlayIcon, SubtitlesIcon, VolumeIcon } from "./icons";
+import { ArrowLeftIcon, BackIcon, ExitFullscreenIcon, ForwardIcon, FullscreenIcon, MuteIcon, PauseIcon, PlayIcon, StyleIcon, SubtitlesIcon, VolumeIcon } from "./icons";
+import SubtitleStylePanel from "./SubtitleStylePanel";
+import { boxStyle, loadStyle, saveStyle, textStyle, type SubStyle } from "./subtitleStyle";
 import TracksPanel from "./TracksPanel";
 import { useApi } from "./useApi";
 
@@ -33,7 +35,24 @@ export default function Player({ movie, details, resumeAt = 0, onBack, onChanged
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
-  const [panel, setPanel] = useState(false);
+  const [panel, setPanel] = useState<"tracks" | "style" | null>(null); // the panel over the controls, if any
+  const [subStyle, setSubStyle] = useState(loadStyle);
+  const changeStyle = (s: SubStyle) => {
+    setSubStyle(s);
+    saveStyle(s);
+  };
+  // the panel opens when the pointer is on its button and closes a moment after it left both (a touch screen taps)
+  const closing = useRef(0);
+  const openPanel = (which: "tracks" | "style") => {
+    clearTimeout(closing.current);
+    setPanel(which);
+    if (which === "tracks") setOpened(true);
+  };
+  const leavePanel = () => {
+    clearTimeout(closing.current);
+    closing.current = window.setTimeout(() => setPanel(null), 350);
+  };
+  useEffect(() => () => clearTimeout(closing.current), []);
   const [opened, setOpened] = useState(false); // the audio tracks are only looked up once the panel was opened
   const [sub, setSub] = useState<string | null | undefined>(undefined); // undefined: the automatic choice
   const from = resumeAt > 5 ? Math.floor(resumeAt) : 0; // a few seconds in is not worth a jump
@@ -122,7 +141,7 @@ export default function Player({ movie, details, resumeAt = 0, onBack, onChanged
       if (e.key === "Escape") {
         // closes the panel first, then goes back to the movie sheet instead of closing everything
         e.stopPropagation();
-        return panel ? setPanel(false) : onBack();
+        return panel ? setPanel(null) : onBack();
       }
       wake();
       if (target.closest("input, select, textarea")) return; // typing or choosing in the panel
@@ -241,10 +260,10 @@ export default function Player({ movie, details, resumeAt = 0, onBack, onChanged
         ))}
       </video>
 
-      {cue && <p className="subtitle" aria-live="off">{cue}</p>}
+      {cue && <p className="subtitle" style={boxStyle(subStyle)} aria-live="off"><span style={textStyle(subStyle)}>{cue}</span></p>}
 
       <div className="player-bar">
-        <button className="back" onClick={onBack} aria-label={t("player.back")}>←</button>
+        <button className="back" onClick={onBack} aria-label={t("player.back")}><ArrowLeftIcon /></button>
         <span className="player-title">{movie.title}</span>
       </div>
 
@@ -272,38 +291,39 @@ export default function Player({ movie, details, resumeAt = 0, onBack, onChanged
           <input type="range" className="volume" min={0} max={1} step={0.05} value={muted ? 0 : volume} onChange={(e) => setVolumeTo(Number(e.target.value))} aria-label={t("player.volume")} />
           <span className="time">{clock(position)}{total ? ` / ${clock(total)}` : ""}</span>
           <span className="spacer" />
-          <button
-            className="ctl wide"
-            aria-expanded={panel}
-            aria-haspopup="dialog"
-            onClick={press(() => {
-              setPanel((p) => !p);
-              setOpened(true);
-            })}
-          >
-            <SubtitlesIcon />
-            <span>{t("player.tracks")}</span>
-          </button>
+          {(["style", "tracks"] as const).map((which) => (
+            <button
+              key={which}
+              className="ctl wide"
+              aria-expanded={panel === which}
+              aria-haspopup="dialog"
+              onPointerEnter={(e) => e.pointerType === "mouse" && openPanel(which)}
+              onPointerLeave={(e) => e.pointerType === "mouse" && leavePanel()}
+              onClick={press(() => (panel === which && !window.matchMedia("(hover: hover)").matches ? setPanel(null) : openPanel(which)))}
+            >
+              {which === "tracks" ? <SubtitlesIcon /> : <StyleIcon />}
+              <span>{t(which === "tracks" ? "player.tracks" : "player.subStyle")}</span>
+            </button>
+          ))}
           <button className="ctl" onClick={press(() => void toggleFullscreen())} aria-label={fullscreen ? t("player.exitFullscreen") : t("player.fullscreen")}>
             {fullscreen ? <ExitFullscreenIcon /> : <FullscreenIcon />}
           </button>
         </div>
       </div>
 
-      {panel && (
+      {panel === "style" && <SubtitleStylePanel style={subStyle} onChange={changeStyle} onEnter={() => clearTimeout(closing.current)} onLeave={leavePanel} />}
+      {panel === "tracks" && (
         <TracksPanel
           movie={movie}
           subs={subs}
           selected={selected}
           audio={tracks.loading ? null : tracks.data}
           audioIndex={audio.index}
-          onApply={(chosenSub, chosenAudio) => {
-            setSub(chosenSub);
-            chooseAudio(chosenAudio);
-            setPanel(false);
-          }}
-          onCancel={() => setPanel(false)}
+          onPickSub={setSub}
+          onPickAudio={chooseAudio}
           onChanged={onChanged}
+          onEnter={() => clearTimeout(closing.current)}
+          onLeave={leavePanel}
         />
       )}
       {(!started || failed) && <p className="player-status" role="status">{status}</p>}

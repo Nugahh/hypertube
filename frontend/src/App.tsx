@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { getContinue, getDownloads, getShelf, logout, me, type Movie, type User } from "./api";
+import { getContinue, getDownloads, getShelf, logout, me, updateProfile, type Movie, type User } from "./api";
 import AccountMenu from "./AccountMenu";
 import { Card } from "./Card";
 import Catalog from "./Catalog";
+import LangMenu from "./LangMenu";
 import AuthPage from "./AuthPage";
 import { errorText, useI18n } from "./i18n";
 import Members from "./Members";
@@ -61,7 +62,7 @@ function Home({ round, onSelect }: { round: number; onSelect: (m: Movie) => void
   return (
     <main>
       {resume.data.length > 0 && <Row title={t("home.continue")} state={resume} onSelect={onSelect} />}
-      <Catalog onSelect={onSelect} />
+      <Catalog kind="movie" onSelect={onSelect} />
     </main>
   );
 }
@@ -71,7 +72,12 @@ function Library({ user, onUserChange, onLogout }: {
   onUserChange: (u: User) => void;
   onLogout: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, setLang } = useI18n();
+  // the language is the member's own: it follows them to another device
+  const pickLang = (language: User["language"]) => {
+    // the server answers in the language it has on record: it is saved first, then the site (and what it shows) changes
+    updateProfile(user.id, { language }).then(onUserChange).catch(() => setLang(language));
+  };
   const [q, setQ] = useState("");
   const [view, setView] = useState<View>("home");
   const [profileId, setProfileId] = useState<number | null>(null); // the member whose profile window is open
@@ -94,15 +100,15 @@ function Library({ user, onUserChange, onLogout }: {
     return () => window.removeEventListener("keydown", onKey);
   }, [profileId]);
 
-  const shelf = (title: string, empty: string, load: (signal: AbortSignal) => Promise<Movie[]>) => (
-    <Shelf key={view} title={title} empty={empty} load={load} round={round} onSelect={setSelected} />
+  const shelf = (title: string, empty: string, load: (signal: AbortSignal) => Promise<Movie[]>, catalog?: "list" | "favorite") => (
+    <Shelf key={view} title={title} empty={empty} load={load} catalog={catalog} round={round} onSelect={setSelected} />
   );
 
   const page = () => {
     if (searching) return <main><Catalog q={q.trim()} onSelect={setSelected} /></main>;
     if (view === "members") return <Members onOpen={setProfileId} />;
-    if (view === "list") return shelf(t("nav.list"), t("shelf.list.empty"), (s) => getShelf("list", s));
-    if (view === "favorites") return shelf(t("nav.favorites"), t("shelf.favorites.empty"), (s) => getShelf("favorite", s));
+    if (view === "list") return shelf(t("nav.list"), t("shelf.list.empty"), (s) => getShelf("list", s), "list");
+    if (view === "favorites") return shelf(t("nav.favorites"), t("shelf.favorites.empty"), (s) => getShelf("favorite", s), "favorite");
     if (view === "downloads") return shelf(t("nav.downloads"), t("shelf.downloads.empty"), getDownloads);
     switch (view) {
       case "home": return <Home round={round} onSelect={setSelected} />;
@@ -136,6 +142,7 @@ function Library({ user, onUserChange, onLogout }: {
               onChange={(e) => setQ(e.target.value)}
             />
           </label>
+          <LangMenu onPick={pickLang} />
           <AccountMenu user={user} onAccount={() => setProfileId(user.id)} onLogout={onLogout} />
         </div>
       </header>

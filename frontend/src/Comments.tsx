@@ -11,6 +11,7 @@ function CommentForm({ initial = "", submit, cancel, label }: { initial?: string
   const [text, setText] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false); // plays the ring around the button once the server took the comment
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -20,6 +21,8 @@ function CommentForm({ initial = "", submit, cancel, label }: { initial?: string
     try {
       await submit(text);
       if (!initial) setText("");
+      setSent(true);
+      setTimeout(() => setSent(false), 600);
     } catch (err) {
       setError(errorText(t, err));
     }
@@ -31,7 +34,7 @@ function CommentForm({ initial = "", submit, cancel, label }: { initial?: string
       <textarea value={text} onChange={(e) => setText(e.target.value)} maxLength={MAX} rows={initial ? 3 : 2} placeholder={t("comments.placeholder")} aria-label={t("comments.placeholder")} />
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="comment-actions">
-        <button className="btn-link" disabled={busy || !text.trim()}>{label}</button>
+        <button className={`btn-post${sent ? " sent" : ""}`} disabled={busy || !text.trim()}>{label}</button>
         {cancel && <button type="button" className="btn-link" onClick={cancel}>{t("comments.cancel")}</button>}
       </div>
     </form>

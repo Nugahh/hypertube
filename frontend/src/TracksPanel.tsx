@@ -4,6 +4,7 @@ import {
   type AudioTrack, type FoundSubtitle, type Movie, type Subtitle,
 } from "./api";
 import { useI18n } from "./i18n";
+import { TickIcon } from "./icons";
 
 // the languages a subtitle can be in (the server's list), by their own name
 const LANGUAGES: Record<string, string> = {
@@ -17,7 +18,7 @@ const audioLabel = (a: AudioTrack) =>
 function Choice({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button className={`track${on ? " on" : ""}`} aria-pressed={on} onClick={onClick}>
-      <span className="tick" aria-hidden>{on ? "✓" : ""}</span>
+      <span className="tick" aria-hidden>{on && <TickIcon />}</span>
       <span className="track-name">{children}</span>
     </button>
   );
@@ -85,20 +86,20 @@ function OpenSubtitles({ movie, onAdded, onBack }: { movie: Movie; onAdded: (s: 
 }
 
 // Netflix / Stremio style: audio on the left, subtitles on the right, with import and OpenSubtitles under the subtitles.
-// Choices are only kept (and applied to the player) with Apply; Cancel throws them away.
-export default function TracksPanel({ movie, subs, selected, audio, audioIndex, onApply, onCancel, onChanged }: {
+// A choice applies as soon as it is clicked; the panel opens over the button and goes away when the pointer leaves it.
+export default function TracksPanel({ movie, subs, selected, audio, audioIndex, onPickSub, onPickAudio, onChanged, onEnter, onLeave }: {
   movie: Movie;
   subs: Subtitle[];
   selected: string | null; // the subtitle in use now: ref, or null for none
   audio: AudioTrack[] | null; // null while the server looks at the file
   audioIndex: number; // the audio track in use now
-  onApply: (sub: string | null, audio: number) => void;
-  onCancel: () => void;
+  onPickSub: (sub: string | null) => void;
+  onPickAudio: (index: number) => void;
   onChanged: () => void; // the list of subtitles changed: reload it now
+  onEnter: () => void; // the pointer is over the panel: it stays
+  onLeave: () => void; // and it is gone: the panel closes soon
 }) {
   const { t } = useI18n();
-  const [pickedSub, setPickedSub] = useState(selected);
-  const [pickedAudio, setPickedAudio] = useState(audioIndex);
   const [view, setView] = useState<"list" | "opensub">("list");
   const [importLang, setImportLang] = useState(""); // "": the server reads it from the file name
   const [error, setError] = useState<string | null>(null);
@@ -107,7 +108,7 @@ export default function TracksPanel({ movie, subs, selected, audio, audioIndex, 
 
   const added = (s: Subtitle) => {
     onChanged();
-    setPickedSub(s.ref); // chosen, but still to apply
+    onPickSub(s.ref); // a subtitle just added is the one the member wants
     setView("list");
   };
 
@@ -134,7 +135,7 @@ export default function TracksPanel({ movie, subs, selected, audio, audioIndex, 
     setError(null);
     try {
       await deleteSubtitle(movie.id, s.ref); // removing is immediate: it is the file that goes, not a choice
-      if (pickedSub === s.ref) setPickedSub(null);
+      if (selected === s.ref) onPickSub(null);
       onChanged();
     } catch (err) {
       setError(importError(err));
@@ -142,15 +143,15 @@ export default function TracksPanel({ movie, subs, selected, audio, audioIndex, 
   }
 
   return (
-    <div className="tracks" role="dialog" aria-label={t("player.tracks")}>
+    <div className="tracks" role="dialog" aria-label={t("player.tracks")} onPointerEnter={onEnter} onPointerLeave={onLeave}>
       <section className="tracks-col" aria-label={t("tracks.audio")}>
         <h3>{t("tracks.audio")}</h3>
         {audio === null ? (
           <p className="tracks-note">{t("tracks.audio.loading")}</p>
         ) : audio.length === 0 ? (
-          <Choice on onClick={() => setPickedAudio(0)}>{t("tracks.audio.default")}</Choice>
+          <Choice on onClick={() => onPickAudio(0)}>{t("tracks.audio.default")}</Choice>
         ) : (
-          audio.map((a) => <Choice key={a.index} on={a.index === pickedAudio} onClick={() => setPickedAudio(a.index)}>{audioLabel(a)}</Choice>)
+          audio.map((a) => <Choice key={a.index} on={a.index === audioIndex} onClick={() => onPickAudio(a.index)}>{audioLabel(a)}</Choice>)
         )}
         {audio !== null && audio.length > 1 && <p className="tracks-note">{t("tracks.audio.note")}</p>}
       </section>
@@ -160,11 +161,11 @@ export default function TracksPanel({ movie, subs, selected, audio, audioIndex, 
           <OpenSubtitles movie={movie} onAdded={added} onBack={() => setView("list")} />
         ) : (
           <>
-            <Choice on={pickedSub === null} onClick={() => setPickedSub(null)}>{t("tracks.off")}</Choice>
+            <Choice on={selected === null} onClick={() => onPickSub(null)}>{t("tracks.off")}</Choice>
             {subs.length === 0 && <p className="tracks-note">{t("tracks.none")}</p>}
             {subs.map((s) => (
               <div key={s.ref} className="track-row">
-                <Choice on={pickedSub === s.ref} onClick={() => setPickedSub(s.ref)}>
+                <Choice on={selected === s.ref} onClick={() => onPickSub(s.ref)}>
                   {LANGUAGES[s.lang] ?? s.lang}
                   {s.source !== "torrent" && <small>{s.source === "opensubtitles" ? "OpenSubtitles" : t("tracks.imported")} · {s.label}</small>}
                 </Choice>
@@ -186,10 +187,6 @@ export default function TracksPanel({ movie, subs, selected, audio, audioIndex, 
           </>
         )}
       </section>
-      <div className="tracks-footer">
-        <button className="btn-link" onClick={onCancel}>{t("tracks.cancel")}</button>
-        <button className="btn red" onClick={() => onApply(pickedSub, pickedAudio)}>{t("tracks.apply")}</button>
-      </div>
     </div>
   );
 }

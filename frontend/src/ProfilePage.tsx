@@ -95,7 +95,7 @@ function OwnProfile({ me, onUpdate }: { me: User; onUpdate: (u: User) => void })
       </div>
       <label className="field">
         <span>{t("profile.language")}</span>
-        <select value={form.language} onChange={set("language")}>
+        <select value={form.language} onChange={(e) => { const language = e.target.value as User["language"]; setForm({ ...form, language }); void run(() => updateProfile(me.id, { language })); }}>
           {LANGS.map((l) => <option key={l} value={l}>{t(`lang.${l}`)}</option>)}
         </select>
       </label>
