@@ -254,9 +254,7 @@ a.mark{text-decoration:none;color:inherit}
 .seek,.volume{-webkit-appearance:none;appearance:none;height:5px;border-radius:3px;cursor:pointer;outline:0;margin:0}
 .seek{display:block;width:100%;margin-bottom:6px;background:linear-gradient(90deg,var(--accent) var(--played),rgba(255,255,255,.5) var(--played),rgba(255,255,255,.5) var(--buffered),rgba(255,255,255,.2) var(--buffered))}
 .seek:disabled{cursor:default}
-.volume{width:90px;background:linear-gradient(90deg,#fff var(--vol,100%),rgba(255,255,255,.35) var(--vol,100%))} /* fills as the volume goes up, like Netflix */
-.volume::-webkit-slider-thumb{background:#fff}
-.volume::-moz-range-thumb{background:#fff}
+.volume{width:90px;background:linear-gradient(90deg,var(--accent) var(--vol,100%),rgba(255,255,255,.35) var(--vol,100%))} /* fills in red as the volume goes up */
 .seek::-webkit-slider-thumb,.volume::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--accent);border:0}
 .seek::-moz-range-thumb,.volume::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:var(--accent);border:0}
 .seek:disabled::-webkit-slider-thumb{background:#999}
