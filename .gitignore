@@ -9,3 +9,4 @@ __pycache__/
 *.log
 hypertube.pdf
 .history/
+.DS_Store
