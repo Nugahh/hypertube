@@ -303,7 +303,7 @@ export default function Player({ movie, details, resumeAt = 0, onBack, onChanged
           <button className="ctl" onClick={press(() => video.current && (video.current.muted = !video.current.muted))} aria-label={muted ? t("player.unmute") : t("player.mute")}>
             {muted || volume === 0 ? <MuteIcon /> : <VolumeIcon />}
           </button>
-          <input type="range" className="volume" min={0} max={1} step={0.05} value={muted ? 0 : volume} onChange={(e) => setVolumeTo(Number(e.target.value))} aria-label={t("player.volume")} />
+          <input type="range" className="volume" min={0} max={1} step={0.05} value={muted ? 0 : volume} onChange={(e) => setVolumeTo(Number(e.target.value))} style={{ "--vol": `${(muted ? 0 : volume) * 100}%` } as React.CSSProperties} aria-label={t("player.volume")} />
           <span className="time">{clock(position)}{total ? ` / ${clock(total)}` : ""}</span>
           <span className="spacer" />
           {(["style", "tracks"] as const).map((which) => (
