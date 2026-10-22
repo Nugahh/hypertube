@@ -243,3 +243,35 @@ def test_fetch_torrent_errors_never_leak_the_api_key(monkeypatch):
     with pytest.raises(jackett.JackettError) as err:
         asyncio.run(jackett.fetch_torrent("http://jackett:9117/dl/x/?jackett_apikey=SECRETKEY"))
     assert "SECRETKEY" not in str(err.value)
+
+
+def test_a_download_can_be_cancelled_and_started_again(library):
+    movie = sintel(library)
+    library.post(f"/api/movies/{movie}/download")
+    assert any(library.engine.download_dir.rglob("*.mp4"))
+    res = library.delete(f"/api/movies/{movie}/download")
+    assert res.status_code == 200 and res.json()["state"] == "idle"
+    assert library.engine.removed == ["hash-torrent-a"]
+    assert not any(library.engine.download_dir.rglob("*.mp4"))  # what had arrived is gone
+    assert library.delete(f"/api/movies/{movie}/download").json()["state"] == "idle"  # nothing running: nothing changes
+    assert library.post(f"/api/movies/{movie}/download").json()["state"] == "downloading"
+
+
+def test_a_downloaded_movie_can_be_erased_from_the_server_and_downloaded_again(library):
+    movie = sintel(library)
+    library.get(f"/api/movies/{movie}/stream", headers={"Range": "bytes=0-9"})
+    assert library.get(f"/api/movies/{movie}").json()["state"] == "ready"
+    assert any(library.engine.download_dir.rglob("*.mp4"))
+    res = library.delete(f"/api/movies/{movie}/file")
+    assert res.status_code == 200 and (res.json()["state"], res.json()["progress"]) == ("idle", 0)
+    assert not any(library.engine.download_dir.rglob("*.mp4"))
+    assert library.post(f"/api/movies/{movie}/download").json()["state"] == "downloading"
+
+
+def test_the_states_of_all_the_copies_come_in_one_call(library):
+    library.engine.ready = 2560
+    movie = sintel(library)
+    library.post(f"/api/movies/{movie}/download")
+    got = library.get(f"/api/movies/states?ids={movie},99999").json()
+    assert got == {str(movie): {"state": "downloading", "progress": 0.25}}  # an unknown id is just left out
+    assert library.get("/api/movies/states?ids=abc").status_code == 422

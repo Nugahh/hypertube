@@ -1,6 +1,8 @@
 import os
+import shutil
 from collections import namedtuple
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -16,7 +18,7 @@ from app import textmatch as tm
 from app.auth import current_user
 from app.db import get_db
 from app.engine import get_engine
-from app.models import Bookmark, Comment, Movie, Progress, User, Watched
+from app.models import Bookmark, CatalogTitle, Comment, Movie, Progress, User, Watched
 
 # what the browser may know about a movie: the provider link and the torrent never leave the server
 PUBLIC = ("id", "title", "year", "resolution", "size", "seeders", "peers", "provider", "cover")
@@ -82,6 +84,9 @@ def present(db, user, movies, matches=None, films=None):
         marked[kind].add(movie_id)
     saved = {p.movie_id: p for p in db.scalars(select(Progress).where(Progress.user_id == user.id, Progress.movie_id.in_(ids)))}
     matches = matches or {}
+    # a copy is named by its torrent ("Spider-Man Brand New Day (2026) 720p WEBRip…"): show TMDb's title when the catalogue knows it
+    keys = {(m.info.kind, m.info.tmdb_id) for m in movies if m.info and m.info.tmdb_id and m.info.kind}
+    names = {(t.kind, t.tmdb_id): t.title for t in db.scalars(select(CatalogTitle).where(CatalogTitle.tmdb_id.in_([k[1] for k in keys])))} if keys else {}
     items = []
     for m in movies:
         # where the member stopped: the copy they watched last gives it (it may not be the thumbnail's own copy)
@@ -89,6 +94,7 @@ def present(db, user, movies, matches=None, films=None):
         done = last is not None and last.position >= FINISHED * last.duration
         items.append({
             **public(m),
+            "title": names.get((m.info.kind, m.info.tmdb_id), m.title) if m.info else m.title,
             "resume": {"id": last.movie_id, "position": last.position, "duration": last.duration} if last and not done else None,
             "finished": done,
             "watched": any(s.id in seen for s in sources[m.id]),
@@ -130,6 +136,7 @@ def _sheet(movie):
         "overview": info.overview if info else None,
         "runtime": info.runtime if info else None,
         "language": info.language if info else None,
+        "tmdb_id": info.tmdb_id if info and info.kind == "movie" else None,  # Letterboxd knows films, not series
         **{k: (getattr(info, k) if info else None) or [] for k in LISTS},
     }
 
@@ -256,13 +263,31 @@ def remove_bookmark(movie_id: int, kind: Shelf, user: User = Depends(current_use
     db.commit()
 
 
+@router.get("/states")
+def states(ids: str = Query(max_length=400), db: Session = Depends(get_db), engine=Depends(get_engine)):
+    """Where the download of each copy stands (`ids` are comma-separated): a film window shows it on every provider's button."""
+    try:
+        wanted = [int(i) for i in ids.split(",")][:50]
+    except ValueError:
+        raise HTTPException(status_code=422, detail="ids must be numbers")
+    rows = db.scalars(select(Movie).where(Movie.id.in_(wanted))).all()
+    for movie in rows:
+        sync(db, engine, movie)
+    return {m.id: {"state": m.status, "progress": progress(engine, m)} for m in rows}
+
+
 @router.get("/{movie_id}")
 async def get_movie(movie_id: int, user: User = Depends(current_user), db: Session = Depends(get_db), engine=Depends(get_engine)):
     movie = _movie(db, movie_id)
     await tmdb.enrich(db, [movie])
     sync(db, engine, movie)
     count = db.scalar(select(func.count()).select_from(Comment).where(Comment.movie_id == movie.id))
-    return {**_details(engine, movie), "comments": count, "subtitles": captions.listing(db, engine, movie, user)}
+    details = {**_details(engine, movie), "comments": count, "subtitles": captions.listing(db, engine, movie, user)}
+    if movie.info and movie.info.tmdb_id and movie.info.kind and os.getenv("TMDB_API_KEY"):  # the stored summary is in the language it was first asked in
+        words = await tmdb.in_language(movie.info.kind, movie.info.tmdb_id, tmdb.LANGUAGE_TAGS.get(user.language, "en-US"))
+        if words:
+            details["overview"], details["genres"] = words["overview"] or details["overview"], words["genres"] or details["genres"]
+    return details
 
 
 _audio_cache = {}  # movie id -> its audio tracks. shortcut: per process, and probed once
@@ -285,6 +310,43 @@ async def download(movie_id: int, db: Session = Depends(get_db), engine=Depends(
     """Start downloading on the server without playing: the movie will be there for later."""
     movie = _movie(db, movie_id)
     await _open_source(db, engine, movie)
+    return _details(engine, movie)
+
+
+def erase_files(engine, movie, kept_folders):
+    """Stop the torrent and delete the movie's files: the torrent's own folder goes entirely (partial leftovers included),
+    unless a movie we keep lives in it. The movie goes back to `idle`."""
+    if movie.infohash:
+        engine.remove(movie.infohash)
+    if movie.file_path:
+        parts = Path(movie.file_path).parts
+        if len(parts) > 1 and parts[0] not in kept_folders:
+            shutil.rmtree(engine.download_dir / parts[0], ignore_errors=True)
+        else:
+            (engine.download_dir / movie.file_path).unlink(missing_ok=True)
+    movie.status, movie.infohash, movie.file_path, movie.ready_at = "idle", None, None, None
+
+
+def _erase(db, engine, movie):
+    others = db.scalars(select(Movie).where(Movie.status.in_(("ready", "downloading")), Movie.id != movie.id, Movie.file_path.is_not(None))).all()
+    erase_files(engine, movie, {Path(m.file_path).parts[0] for m in others})
+    db.commit()
+
+
+@router.delete("/{movie_id}/file")
+def delete_file(movie_id: int, db: Session = Depends(get_db), engine=Depends(get_engine)):
+    """Erase the downloaded file from the server (anyone can download it again)."""
+    movie = _movie(db, movie_id)
+    _erase(db, engine, movie)
+    return _details(engine, movie)
+
+
+@router.delete("/{movie_id}/download")
+def cancel_download(movie_id: int, db: Session = Depends(get_db), engine=Depends(get_engine)):
+    """Stop a download in progress and delete what arrived."""
+    movie = _movie(db, movie_id)
+    if movie.status == "downloading":
+        _erase(db, engine, movie)
     return _details(engine, movie)
 
 

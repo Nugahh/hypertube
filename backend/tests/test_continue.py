@@ -70,3 +70,14 @@ def test_at_most_twenty_films(seen, session_factory):
             s.add(models.Watched(user_id=1, movie_id=movie.id, watched_at=datetime.now(timezone.utc) - timedelta(minutes=i)))
         s.commit()
     assert len(titles(seen)) == 20
+
+
+def test_a_thumbnail_is_named_by_tmdb_not_by_its_torrent(seen, session_factory):
+    title, movie = next(iter(seen.ids.items()))
+    with session_factory() as s:
+        s.add(models.MovieInfo(movie_id=movie, tmdb_id=603, kind="movie"))
+        s.add(models.CatalogTitle(kind="movie", tmdb_id=603, title="The Matrix"))
+        s.commit()
+    seen.watch(movie)
+    got = {m["id"]: m["title"] for m in seen.get("/api/continue").json()}
+    assert got[movie] == "The Matrix" and title != "The Matrix"

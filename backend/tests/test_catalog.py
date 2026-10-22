@@ -2,7 +2,7 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from app import jackett, models, tmdb
+from app import catalog, jackett, models, tmdb
 
 GENRES = {"genres": [{"id": 28, "name": "Action"}, {"id": 80, "name": "Crime"}]}
 MATRIX = {"id": 603, "title": "The Matrix", "release_date": "1999-03-30", "vote_average": 8.2, "vote_count": 25000, "poster_path": "/m.jpg",
@@ -67,7 +67,7 @@ def test_a_page_is_what_tmdb_lists_by_popularity_with_its_genres_named(api):
     page = api.get("/api/catalog", params={"kind": "movie", "genre": 28, "page": 2}).json()
     assert page == {
         "items": [{"kind": "movie", "id": 603, "title": "The Matrix", "year": 1999, "rating": 8.2, "poster": "https://image.tmdb.org/t/p/w500/m.jpg",
-                   "overview": "A hacker learns the truth.", "genres": ["Action"]}],
+                   "overview": "A hacker learns the truth.", "genres": ["Action"], "favorite": False, "listed": False}],
         "page": 2, "total": 4000, "has_more": True,
     }
     [call] = discovered(api.fake)
@@ -216,3 +216,43 @@ def test_copies_need_a_member_and_tmdb_and_the_providers(providers, client, monk
     assert providers.get("/api/catalog/movie/603/copies").status_code == 501
     client.cookies.clear()
     assert client.get("/api/catalog/movie/603/copies").status_code == 401
+
+
+def test_a_catalogue_title_goes_to_the_list_and_the_favorites_and_comes_back(api):
+    api.get("/api/catalog?kind=movie")  # the catalogue keeps what it showed
+    assert api.put("/api/catalog/movie/603/bookmarks/favorite").status_code == 204
+    assert api.put("/api/catalog/movie/603/bookmarks/favorite").status_code == 204  # twice: nothing changes
+    item = api.get("/api/catalog?kind=movie").json()["items"][0]
+    assert (item["favorite"], item["listed"]) == (True, False)
+    assert [t["id"] for t in api.get("/api/catalog/bookmarks/favorite").json()] == [603]
+    assert api.get("/api/catalog/bookmarks/list").json() == []
+    assert api.delete("/api/catalog/movie/603/bookmarks/favorite").status_code == 204
+    assert api.get("/api/catalog/bookmarks/favorite").json() == []
+    assert api.put("/api/catalog/movie/999/bookmarks/list").status_code == 404  # never shown by the catalogue
+
+
+def test_a_shelf_says_its_titles_in_the_members_language(api):
+    api.get("/api/catalog?kind=movie")
+    api.put("/api/catalog/movie/603/bookmarks/list")
+    assert api.patch("/api/users/1", json={"language": "fr"}).status_code == 200
+    [item] = api.get("/api/catalog/bookmarks/list").json()
+    assert item["overview"] == DETAILS["overview"] and item["genres"] == ["Action"]
+    asked = [r.url.params["language"] for r in api.fake.calls if r.url.path.endswith("/movie/603")]
+    assert asked == ["fr-FR"]
+    api.get("/api/catalog/bookmarks/list")
+    assert len([r for r in api.fake.calls if r.url.path.endswith("/movie/603")]) == 1  # asked once, then remembered
+
+
+def test_the_french_genres_of_series_have_no_english_left_over():
+    assert tmdb._genre("Kids", "fr-FR") == "Enfants" and tmdb._genre("Action & Adventure", "fr-FR") == "Action & Aventure"
+    assert tmdb._genre("Kids", "en-US") == "Kids" and tmdb._genre("Drame", "fr-FR") == "Drame"
+
+
+def test_a_typo_finds_the_closest_title_the_catalogue_knows(session_factory):
+    with session_factory() as s:
+        s.add_all([models.CatalogTitle(kind="movie", tmdb_id=1, title="Spider-Man: Brand New Day"), models.CatalogTitle(kind="movie", tmdb_id=2, title="The Matrix")])
+        s.commit()
+        assert catalog._closest(s, "movie", "spidermann") == "spider man"
+        assert catalog._closest(s, "movie", "matirx") == "matrix"
+        assert catalog._closest(s, "movie", "zzzzzz") is None
+        assert catalog._closest(s, "tv", "spidermann") is None  # series are another list

@@ -1,7 +1,6 @@
 """Background upkeep: notice finished downloads, erase movies nobody watched for a month."""
 import asyncio
 import logging
-import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -39,17 +38,7 @@ def purge_unwatched(db, engine, now=None, max_age=MAX_AGE):
         elif movie.file_path:
             kept_folders.add(Path(movie.file_path).parts[0])
     for movie in stale:
-        if movie.infohash:
-            engine.remove(movie.infohash)
-        if movie.file_path:
-            parts = Path(movie.file_path).parts
-            folder = engine.download_dir / parts[0]
-            # the torrent's own folder goes entirely (partial leftovers included), unless a movie we keep lives in it
-            if len(parts) > 1 and parts[0] not in kept_folders:
-                shutil.rmtree(folder, ignore_errors=True)
-            else:
-                (engine.download_dir / movie.file_path).unlink(missing_ok=True)
-        movie.status, movie.infohash, movie.file_path, movie.ready_at = "idle", None, None, None
+        movies.erase_files(engine, movie, kept_folders)
     db.commit()
     return len(stale)
 

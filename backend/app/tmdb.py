@@ -146,6 +146,17 @@ MAX_PAGES = 500  # TMDb lists no further
 _genres = {}  # (kind, language) -> {genre id: name}. shortcut: kept in memory, a restart asks again
 
 
+# TMDb's French list of series genres keeps some English names
+FR_GENRES = {
+    "Action & Adventure": "Action & Aventure", "Kids": "Enfants", "News": "Actualités", "Reality": "Téléréalité",
+    "Soap": "Feuilleton", "Talk": "Talk-show", "War & Politics": "Guerre & Politique",
+}
+
+
+def _genre(name, language):
+    return FR_GENRES.get(name, name) if language.startswith("fr") else name
+
+
 async def _call(path, **params):
     """One TMDb request: its JSON. LookupError when TMDb has no such thing, TmdbError when it cannot be asked."""
     try:
@@ -165,7 +176,7 @@ async def genre_names(kind, language):
     """TMDb's genres of films (kind "movie") or series ("tv"), in that language: {id: name}."""
     if (kind, language) not in _genres:
         found = await _call(f"/genre/{kind}/list", language=language)
-        _genres[(kind, language)] = {g["id"]: g["name"] for g in found["genres"]}
+        _genres[(kind, language)] = {g["id"]: _genre(g["name"], language) for g in found["genres"]}
     return _genres[(kind, language)]
 
 
@@ -198,8 +209,25 @@ async def browse(kind, genre, page, language, q=None):
     return {"items": items, "total": found["total_results"], "pages": found["total_pages"]}
 
 
+_words = {}  # (kind, tmdb id, language) -> title, summary and genres in that language. shortcut: kept in memory, a restart asks again
+
+
+async def in_language(kind, tmdb_id, language):
+    """What a stored title says in the member's language (the rows keep the language they were first asked in); None when TMDb cannot say."""
+    key = (kind, tmdb_id, language)
+    if key not in _words:
+        try:
+            d = await title_sheet(kind, tmdb_id, language)
+        except (TmdbError, LookupError):
+            return None
+        _words[key] = {k: d[k] for k in ("title", "overview", "genres")}
+    return _words[key]
+
+
 async def title_sheet(kind, tmdb_id, language):
     """Everything TMDb has on one film or series: summary, length, rating, genres, directors, cast."""
     d = await _call(f"/{kind}/{tmdb_id}", language=language, append_to_response="credits")
     title = d.get("title") or d.get("name") or ""
-    return {**_normalize(kind, d, tmdb_id), "title": title, "original_title": d.get("original_title") or d.get("original_name") or title}
+    sheet = _normalize(kind, d, tmdb_id)
+    sheet["genres"] = [_genre(g, language) for g in sheet["genres"]]
+    return {**sheet, "title": title, "original_title": d.get("original_title") or d.get("original_name") or title}

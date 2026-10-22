@@ -134,6 +134,18 @@ class CatalogTitle(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class CatalogBookmark(Base):
+    """A catalogue title a member put in "my list" or in their favorites: a film is only a copy once a provider has it, TMDb's id is always there."""
+
+    __tablename__ = "catalog_bookmarks"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    media: Mapped[str] = mapped_column(String(5), primary_key=True)  # movie | tv
+    tmdb_id: Mapped[int] = mapped_column(primary_key=True)
+    shelf: Mapped[str] = mapped_column(String(8), primary_key=True)  # list | favorite
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class Progress(Base):
     """Where a member is in a movie: the player reports it every few seconds ("continue watching" shows a bar)."""
 
