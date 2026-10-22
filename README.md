@@ -63,8 +63,7 @@ This branch is for a program installed on one machine: nobody signs up or logs i
 - **How the stream is made** (the subject forbids libraries that stream a torrent, such as `webtorrent`, `pulsar` or `peerflix`): `libtorrent` only does BitTorrent (peers, pieces, DHT). The streaming is our own code: `app/engine.py` picks the video file and gives the pieces the player asks for priority, `app/stream.py` answers HTTP `Range` requests from the bytes already on disk and waits for the pieces that are not there yet, and `app/transcode.py` runs `ffmpeg` for the formats the browser cannot play.
 - Only the torrent's video file is downloaded (an mp4/webm is preferred, since it plays without conversion).
 - Formats the browser cannot play (mkv, avi…) are converted on the fly to MP4 by `ffmpeg` (included in the Docker image). Limit: a converted stream cannot seek past what has already been produced.
-- **⬇** downloads the film to the server without playing it: it is then played from disk, without downloading again.
-- A film not watched for 30 days is deleted from the disk automatically.
+- **Streaming and downloading are two things.** Playing a film downloads it into a cache (`data/downloads`) so that it can start early and seek; a film that was only streamed is erased from the cache after 3 days unwatched (`CACHE_DAYS`). The **download button** of a copy is for the films you want to keep: it fills while the torrent downloads, then the file moves to your library folder, `~/Desktop/hypertube` by default (`LIBRARY_DIR` in `.env`; with Docker the folder is mounted into the back), and a tick shows. Films in the library are never cleaned up: the cross on the tick deletes the file (after a confirmation), the cross while downloading cancels and deletes what arrived. The **Downloads** tab lists only the films you chose to download.
 - BitTorrent port 6881 (TCP and UDP) must be reachable from the Internet to find and serve peers.
 
 ## Legal sources only

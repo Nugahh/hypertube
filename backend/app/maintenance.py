@@ -1,6 +1,7 @@
-"""Background upkeep: notice finished downloads, erase movies nobody watched for a month."""
+"""Background upkeep: notice finished downloads, empty the cache of the films only streamed and not watched for a few days."""
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from app.db import SessionLocal
 from app.engine import get_engine
 from app.models import Movie
 
-MAX_AGE = timedelta(days=30)  # the subject: a movie unwatched for a month is erased
+MAX_AGE = timedelta(days=int(os.getenv("CACHE_DAYS", "3")))  # a film that was only streamed (not downloaded by the member) goes after this long unwatched
 EVERY = 60  # seconds between two rounds
 
 
@@ -25,15 +26,16 @@ def _aware(moment):
 
 
 def purge_unwatched(db, engine, now=None, max_age=MAX_AGE):
-    """Erase the files of movies not watched for `max_age` (counted from the download if never watched).
+    """Erase the cache copies (films only streamed, never downloaded by the member) not watched for `max_age`, counted from the
+    download if never watched. The films the member keeps stay for good.
 
-    Returns how many movies were erased; they go back to `idle` and can be downloaded again.
+    Returns how many movies were erased; they go back to `idle` and can be streamed or downloaded again.
     """
     now = now or datetime.now(timezone.utc)
     kept_folders, stale = set(), []
     for movie in db.scalars(select(Movie).where(Movie.status.in_(("ready", "downloading")))).all():
         last = movie.last_watched_at or movie.ready_at or movie.created_at
-        if now - _aware(last) > max_age:
+        if not movie.kept and now - _aware(last) > max_age:
             stale.append(movie)
         elif movie.file_path:
             kept_folders.add(Path(movie.file_path).parts[0])

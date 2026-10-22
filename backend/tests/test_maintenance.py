@@ -35,7 +35,7 @@ def lib(session_factory, tmp_path):
 
 
 def purge(lib):
-    return maintenance.purge_unwatched(lib, lib.engine, NOW)
+    return maintenance.purge_unwatched(lib, lib.engine, NOW, max_age=timedelta(days=30))  # the age is a setting (3 days by default)
 
 
 def test_a_movie_not_watched_for_a_month_is_erased_from_disk(lib):
@@ -67,7 +67,7 @@ def test_a_stalled_download_nobody_touched_for_a_month_is_stopped_and_erased(lib
     assert stuck.status == "idle"
 
 
-def test_the_exact_limit_is_30_days(lib):
+def test_the_exact_limit_is_the_age_setting(lib):
     lib.movie("edge.mp4", watched=days(30) + timedelta(minutes=1), ready=days(60))
     assert purge(lib) == 0
 
@@ -106,3 +106,11 @@ def test_finished_downloads_are_noticed_even_if_nobody_asks(lib):
     lib.refresh(row)
     assert row.status == "ready" and row.ready_at.replace(tzinfo=None) == NOW.replace(tzinfo=None)
     assert lib.engine.removed == ["hash-x"]
+
+
+def test_a_film_the_member_downloaded_is_never_cleaned_up(lib):
+    mine = lib.movie("mine.mp4", watched=days(400), ready=days(400))
+    mine.kept = True
+    lib.commit()
+    assert purge(lib) == 0
+    assert (lib.engine.download_dir / mine.file_path).exists()

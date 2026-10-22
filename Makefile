@@ -9,7 +9,7 @@ all: up
 
 # data/jackett is created here so it belongs to you, not to root (Docker would create it as root)
 up: .env
-	mkdir -p data/jackett
+	mkdir -p data/jackett "$${LIBRARY_DIR:-$$HOME/Desktop/hypertube}"
 	docker compose up --build -d
 	@echo "Site:    http://localhost:3000"
 	@echo "Jackett: http://localhost:9117"

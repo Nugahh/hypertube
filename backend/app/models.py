@@ -43,6 +43,7 @@ class Movie(Base):
     file_path: Mapped[str | None] = mapped_column(Text)  # relative to the download directory
     ready_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # when the download finished
     last_watched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    kept: Mapped[bool] = mapped_column(default=False)  # the member chose to download it: it ends in their library and is never cleaned up
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     info: Mapped["MovieInfo | None"] = relationship(lazy="joined", cascade="all, delete-orphan")
 

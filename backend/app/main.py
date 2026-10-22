@@ -64,7 +64,7 @@ async def bookmarks(kind: movies.Shelf, user: User = Depends(auth.current_user),
 @app.get("/api/downloads")
 async def downloads(user: User = Depends(auth.current_user), db: Session = Depends(get_db), engine=Depends(get_engine)):
     """What the server is downloading or has downloaded (they are the same for every member): the films that play at once."""
-    rows = db.scalars(select(Movie).where(Movie.status.in_(["downloading", "ready"]))).all()
+    rows = db.scalars(select(Movie).where(Movie.kept, Movie.status.in_(["downloading", "ready"]))).all()
     for movie in rows:
         movies.sync(db, engine, movie)  # a finished download becomes "ready"
     rows = sorted(rows, key=lambda m: (m.status != "downloading", -(m.ready_at.timestamp() if m.ready_at else 0), m.id))

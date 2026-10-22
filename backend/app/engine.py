@@ -112,9 +112,11 @@ class Torrent:
 
 
 class Engine:
-    def __init__(self, download_dir, listen="0.0.0.0:6881", dht=True):
-        self.download_dir = Path(download_dir)
+    def __init__(self, download_dir, listen="0.0.0.0:6881", dht=True, library_dir=None):
+        self.download_dir = Path(download_dir)  # the cache: every film is downloaded here first
         self.download_dir.mkdir(parents=True, exist_ok=True)
+        self.library_dir = Path(library_dir or download_dir)  # where the films the member keeps end up (see library.py)
+        self.library_dir.mkdir(parents=True, exist_ok=True)
         self.session = lt.session(
             {
                 "listen_interfaces": listen,
@@ -215,5 +217,6 @@ def get_engine():
             os.getenv("DOWNLOAD_DIR", "./data/downloads"),
             listen=f"0.0.0.0:{port},[::]:{port}",
             dht=os.getenv("TORRENT_DHT", "true") == "true",
+            library_dir=os.getenv("LIBRARY_DIR") or None,
         )
     return _engine

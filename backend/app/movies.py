@@ -13,7 +13,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm import Session
 
 from app import engine as engine_module
-from app import captions, jackett, picker, stream, tmdb, transcode
+from app import captions, jackett, library, picker, stream, tmdb, transcode
 from app import textmatch as tm
 from app.auth import current_user
 from app.db import get_db
@@ -169,6 +169,8 @@ def sync(db, engine, movie, now=None):
     if torrent is not None and torrent.is_complete:
         movie.status, movie.ready_at = "ready", now or datetime.now(timezone.utc)
         engine.remove(movie.infohash)
+        if movie.kept:
+            library.move_to_library(engine, movie.file_path)  # the member asked for this film: it goes to their library
         db.commit()
 
 
@@ -195,7 +197,7 @@ def _details(engine, movie):
 async def _open_source(db, engine, movie):
     """The stream source of the movie: its file when downloaded, else its running (or freshly started) torrent."""
     if movie.status == "ready":
-        path = engine.download_dir / movie.file_path
+        path = library.locate(engine, movie.file_path)
         if path.is_file():
             return stream.FileSource(path)
         movie.status = "idle"  # the file disappeared: fall through and download it again
@@ -273,7 +275,8 @@ def states(ids: str = Query(max_length=400), db: Session = Depends(get_db), engi
     rows = db.scalars(select(Movie).where(Movie.id.in_(wanted))).all()
     for movie in rows:
         sync(db, engine, movie)
-    return {m.id: {"state": m.status, "progress": progress(engine, m)} for m in rows}
+    # a film only streamed is not a download of the member: its button stays a download button
+    return {m.id: {"state": m.status if m.kept else "idle", "progress": progress(engine, m) if m.kept else 0} for m in rows}
 
 
 @router.get("/{movie_id}")
@@ -307,9 +310,13 @@ async def audio_tracks(movie_id: int, db: Session = Depends(get_db), engine=Depe
 
 @router.post("/{movie_id}/download")
 async def download(movie_id: int, db: Session = Depends(get_db), engine=Depends(get_engine)):
-    """Start downloading on the server without playing: the movie will be there for later."""
+    """The member downloads the film: it is kept, in their library folder once it is all there (at once when it already is)."""
     movie = _movie(db, movie_id)
+    movie.kept = True
+    db.commit()
     await _open_source(db, engine, movie)
+    if movie.status == "ready":
+        library.move_to_library(engine, movie.file_path)
     return _details(engine, movie)
 
 
@@ -320,11 +327,12 @@ def erase_files(engine, movie, kept_folders):
         engine.remove(movie.infohash)
     if movie.file_path:
         parts = Path(movie.file_path).parts
-        if len(parts) > 1 and parts[0] not in kept_folders:
-            shutil.rmtree(engine.download_dir / parts[0], ignore_errors=True)
-        else:
-            (engine.download_dir / movie.file_path).unlink(missing_ok=True)
-    movie.status, movie.infohash, movie.file_path, movie.ready_at = "idle", None, None, None
+        for root in {engine.download_dir, engine.library_dir}:  # in the cache, or already in the library
+            if len(parts) > 1 and parts[0] not in kept_folders:
+                shutil.rmtree(root / parts[0], ignore_errors=True)
+            else:
+                (root / movie.file_path).unlink(missing_ok=True)
+    movie.status, movie.infohash, movie.file_path, movie.ready_at, movie.kept = "idle", None, None, None, False
 
 
 def _erase(db, engine, movie):

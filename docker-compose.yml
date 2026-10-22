@@ -29,6 +29,7 @@ services:
     build: ./backend
     environment:
       DATABASE_URL: postgresql+psycopg://hypertube:${POSTGRES_PASSWORD}@db:5432/hypertube
+      LIBRARY_DIR: /srv/data/library
       JACKETT_URL: http://jackett:9117
       JACKETT_INDEXER: ${JACKETT_INDEXER:-all}
       JACKETT_EXTRA_INDEXERS: ${JACKETT_EXTRA_INDEXERS:-}
@@ -40,7 +41,8 @@ services:
     volumes:
       # the backend reads Jackett's API key from here when JACKETT_API_KEY is empty
       - ./data/jackett:/jackett-config:ro
-      - downloads:/srv/data/downloads  # the movies downloaded by the torrent engine
+      - downloads:/srv/data/downloads  # the cache: every film is downloaded here first, the streamed ones are cleaned up after a few days
+      - ${LIBRARY_DIR:-${HOME}/Desktop/hypertube}:/srv/data/library  # your films: the ones you download end up here, on your machine
     ports:
       - "127.0.0.1:8000:8000"
       # BitTorrent needs to be reachable from outside to find and serve peers

@@ -46,6 +46,9 @@ class FakeEngine:
 
     def __init__(self, download_dir, videos, ready=None):
         self.download_dir = Path(download_dir)
+        self.library_dir = self.download_dir.parent / "library"  # where the films the member keeps end up
+        self.download_dir.mkdir(parents=True, exist_ok=True)
+        self.library_dir.mkdir(parents=True, exist_ok=True)
         self.videos, self.ready = videos, ready
         self.subs = {}  # file name -> (content, complete): subtitle files that come with the torrent
         self.added, self.removed, self.torrents = [], [], {}

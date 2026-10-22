@@ -1,6 +1,6 @@
 import os
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 # PostgreSQL in Docker (see docker-compose.yml); SQLite when running without it
@@ -32,3 +32,6 @@ def init_db():
     if engine.dialect.name == "postgresql":  # the one change so far: source_id was 500 long, too short for a magnet link (a no-op once done)
         with engine.begin() as conn:
             conn.execute(text(f"ALTER TABLE movies ALTER COLUMN source_id TYPE VARCHAR({models.SOURCE_ID_LENGTH})"))
+    if "kept" not in {c["name"] for c in inspect(engine).get_columns("movies")}:  # added later: films the member chose to download
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE movies ADD COLUMN kept BOOLEAN NOT NULL DEFAULT FALSE"))

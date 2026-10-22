@@ -269,3 +269,20 @@ def test_the_states_of_all_the_copies_come_in_one_call(library):
     got = library.get(f"/api/movies/states?ids={movie},99999").json()
     assert got == {str(movie): {"state": "downloading", "progress": 0.25}}  # an unknown id is just left out
     assert library.get("/api/movies/states?ids=abc").status_code == 422
+
+
+def test_a_downloaded_film_ends_in_the_library_and_a_streamed_one_stays_in_the_cache(library):
+    streamed, chosen = sintel(library), None
+    library.get(f"/api/movies/{streamed}/stream", headers={"Range": "bytes=0-9"})
+    library.get(f"/api/movies/{streamed}")  # finished
+    assert library.get(f"/api/movies/states?ids={streamed}").json()[str(streamed)]["state"] == "idle"  # only streamed: not a download
+    assert any(library.engine.download_dir.rglob("*.mp4")) and not any(library.engine.library_dir.rglob("*.mp4"))
+
+    library.post(f"/api/movies/{streamed}/download")  # now the member wants it
+    assert library.get(f"/api/movies/states?ids={streamed}").json()[str(streamed)]["state"] == "ready"
+    assert any(library.engine.library_dir.rglob("*.mp4")) and not any(library.engine.download_dir.rglob("*.mp4"))
+    assert library.get(f"/api/movies/{streamed}/stream", headers={"Range": "bytes=0-9"}).status_code == 206  # played from the library
+    assert [m["id"] for m in library.get("/api/downloads").json()] == [streamed]
+
+    library.delete(f"/api/movies/{streamed}/file")
+    assert not any(library.engine.library_dir.rglob("*.mp4"))

@@ -2,6 +2,8 @@
 import re
 from pathlib import Path
 
+from app import library
+
 EXTENSIONS = (".srt", ".vtt")
 MAX_BYTES = 2 * 1024 * 1024  # a subtitle file is a few dozen kB: anything bigger is not one
 
@@ -61,8 +63,9 @@ def found(engine, movie):
     if torrent is not None:
         candidates = [path for path, complete in torrent.subtitle_files() if complete]
     elif movie.status == "ready" and movie.file_path and "/" in movie.file_path:
-        root = engine.download_dir / movie.file_path.split("/")[0]
-        candidates = [str(p.relative_to(engine.download_dir)) for p in root.rglob("*") if p.is_file() and is_subtitle(p)]
+        base = library.root_of(engine, movie.file_path)
+        root = base / movie.file_path.split("/")[0]
+        candidates = [str(p.relative_to(base)) for p in root.rglob("*") if p.is_file() and is_subtitle(p)]
     else:
         candidates = []
     result = {}
@@ -79,5 +82,5 @@ def available(engine, movie):
 
 
 def read_vtt(engine, path):
-    file = engine.download_dir / path
+    file = library.locate(engine, path)
     return to_vtt(file.read_bytes()[:MAX_BYTES]) if file.is_file() else None
