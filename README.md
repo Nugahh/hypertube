@@ -74,6 +74,10 @@ The gear in the header opens **Search sources**: the sources the search looks in
 
 The subject requires free or legally distributable sources. Only enable indexers of that kind in Jackett.
 
+## Desktop app (macOS)
+
+`desktop/` builds the app as a `.dmg`: `cd desktop && ./build.sh` (Node, Python 3.11 and an Internet connection; a few minutes). It produces `desktop/release/Hypertube-<version>-arm64.dmg`. Electron opens a window and starts, on this machine, the back (a PyInstaller bundle of `backend/`, SQLite instead of PostgreSQL, serving the site itself), Jackett (listening on `127.0.0.1` only) and ffmpeg/ffprobe, each on a free port. Data is in `~/Library/Application Support/Hypertube` (database, cache, Jackett's settings, logs); the films you download are in `~/Desktop/hypertube`. Nothing is configured at first launch: add your TMDb key (gear, **API keys**) and your search sources (gear, **Search sources**). The app is not signed with a developer account (the bundle is signed ad hoc): if macOS refuses it, right-click the app and choose **Open** once.
+
 ## Development without Docker
 
 ```bash

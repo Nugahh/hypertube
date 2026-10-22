@@ -118,9 +118,12 @@ export const getContinue = (signal: AbortSignal) => request<Movie[]>("/api/conti
 
 // null when nobody is logged in (not an error, so the console stays clean)
 export const me = () => request<User>("/api/auth/me");
-export type Settings = { cache_days: number; library_dir: string };
+export type Keys = { tmdb_api_key: boolean; opensubtitles_api_key: boolean; opensubtitles_username: string; opensubtitles_password: boolean };
+export type Settings = { cache_days: number; library_dir: string; keys: Keys };
 export const getSettings = (signal: AbortSignal) => request<Settings>("/api/settings", { signal });
 export const setCacheDays = (cache_days: number) => send<Settings>("PATCH", "/api/settings", { cache_days });
+// the keys of the services (a secret is never sent back: only whether it is set); an empty text clears it
+export const setKeys = (keys: Partial<Record<keyof Keys, string>>) => send<Settings>("PATCH", "/api/settings", { keys });
 // the search sources (Jackett indexers): the member adds the ones they want
 export type SearchSource = { id: string; name: string; description: string | null; language: string | null; type: "public" | "semi-private" | "private"; configured: boolean };
 export type SourceField = { id: string; name: string; type: string; value: unknown; options: Record<string, string> | null };

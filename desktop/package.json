@@ -1,0 +1,61 @@
+{
+  "name": "hypertube-desktop",
+  "productName": "Hypertube",
+  "version": "0.1.0",
+  "description": "Hypertube as a desktop app: the back, Jackett and ffmpeg run on this machine",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac dmg"
+  },
+  "devDependencies": {
+    "@ffprobe-installer/ffprobe": "^2.1.2",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "ffmpeg-static": "^5.2.0"
+  },
+  "build": {
+    "appId": "dev.hypertube.desktop",
+    "productName": "Hypertube",
+    "files": [
+      "main.js",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "extraResources": [
+      {
+        "from": "stage/backend",
+        "to": "backend"
+      },
+      {
+        "from": "stage/jackett",
+        "to": "jackett"
+      },
+      {
+        "from": "stage/frontend",
+        "to": "frontend"
+      },
+      {
+        "from": "stage/bin",
+        "to": "bin"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.video",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "identity": null
+    },
+    "afterPack": "./afterPack.js"
+  }
+}

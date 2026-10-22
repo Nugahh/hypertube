@@ -292,7 +292,8 @@ def test_the_cache_setting_is_kept(library, monkeypatch):
     monkeypatch.delenv("LIBRARY_LABEL", raising=False)  # set by docker compose
     assert library.get("/api/settings").json()["cache_days"] == 3
     assert library.patch("/api/settings", json={"cache_days": 7}).json()["cache_days"] == 7
-    assert library.get("/api/settings").json() == {"cache_days": 7, "library_dir": str(library.engine.library_dir)}
+    got = library.get("/api/settings").json()
+    assert (got["cache_days"], got["library_dir"]) == (7, str(library.engine.library_dir))
     assert library.patch("/api/settings", json={"cache_days": -1}).status_code == 422
 
 
@@ -306,3 +307,16 @@ def test_a_download_the_member_asked_for_starts_again_after_a_restart(library, s
     with session_factory() as s:
         asyncio.run(movies.resume(s, library.engine))
     assert library.engine.added == [TORRENT_A]  # only the film the member chose to download
+
+
+def test_the_keys_are_typed_in_the_settings_and_never_given_back(library, monkeypatch):
+    for variable in ("TMDB_API_KEY", "OPENSUBTITLES_API_KEY", "OPENSUBTITLES_USERNAME", "OPENSUBTITLES_PASSWORD"):
+        monkeypatch.setenv(variable, "")  # tracked: what the app puts there is undone after the test
+    assert library.get("/api/settings").json()["keys"]["tmdb_api_key"] is False
+    res = library.patch("/api/settings", json={"keys": {"tmdb_api_key": " secret-key ", "opensubtitles_username": "ada"}})
+    assert res.json()["keys"] == {"tmdb_api_key": True, "opensubtitles_api_key": False, "opensubtitles_username": "ada", "opensubtitles_password": False}
+    assert "secret-key" not in res.text
+    import os
+    assert os.environ["TMDB_API_KEY"] == "secret-key"  # what the code reads
+    assert library.patch("/api/settings", json={"keys": {"tmdb_api_key": ""}}).json()["keys"]["tmdb_api_key"] is False
+    assert library.patch("/api/settings", json={"keys": {"other": "x"}}).status_code == 422

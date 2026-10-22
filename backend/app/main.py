@@ -1,12 +1,14 @@
 import asyncio
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import auth, captions, catalog, comments, jackett, maintenance, movies, settings, sources, tmdb, users
-from app.db import get_db, init_db
+from app.db import SessionLocal, get_db, init_db
 from app.engine import get_engine
 from app.models import Bookmark, Movie, User, Watched
 
@@ -14,6 +16,8 @@ from app.models import Bookmark, Movie, User, Watched
 @asynccontextmanager
 async def lifespan(_):
     init_db()
+    with SessionLocal() as db:
+        settings.load_keys(db)
     upkeep = asyncio.create_task(maintenance.loop())  # finished downloads, one-month cleanup
     yield
     upkeep.cancel()
@@ -92,3 +96,8 @@ async def search(
     found = [f.best for f in films]
     await tmdb.enrich(db, found)  # ratings and posters for the thumbnails
     return movies.present(db, user, found, None, {f.best.id: f for f in films})
+
+
+# the desktop app has no nginx: the back serves the site itself (the routes above win, this catches the rest)
+if os.getenv("FRONTEND_DIR"):
+    app.mount("/", StaticFiles(directory=os.environ["FRONTEND_DIR"], html=True), name="site")

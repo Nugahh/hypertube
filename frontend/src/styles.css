@@ -355,3 +355,5 @@ a.mark{text-decoration:none;color:inherit}
 .src-field span{color:var(--muted)}
 .src-actions{display:flex;justify-content:flex-end;gap:10px}
 .settings-panel .btn-link{align-self:flex-start}
+
+.key-set{font-style:normal;color:#46d369;font-size:12px}
