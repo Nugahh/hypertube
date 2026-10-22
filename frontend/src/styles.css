@@ -210,9 +210,6 @@ a.mark{text-decoration:none;color:inherit}
 .link-small{font-size:12px;color:var(--muted);text-decoration:underline}.link-small:hover{color:var(--text)}
 
 /* MEMBERS + API ACCESS */
-.members{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
-.member{display:flex;align-items:center;gap:12px;width:100%;padding:10px 14px;background:var(--surface);border:1px solid var(--line);border-radius:6px;text-align:left}
-.member:hover{background:var(--surface2)}
 .api-card{margin-top:18px}
 .api-card h2{font-size:18px}
 .clients{list-style:none;display:flex;flex-direction:column;gap:8px}
