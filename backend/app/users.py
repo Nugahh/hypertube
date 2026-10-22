@@ -1,14 +1,7 @@
-import io
-import os
 import re
-import time
-import warnings
-from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
-from PIL import Image, ImageOps, UnidentifiedImageError
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import AfterValidator, BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -19,10 +12,6 @@ from app.db import get_db
 from app import security
 from app.models import User, Welcomed
 
-AVATAR_DIR = Path(os.getenv("AVATAR_DIR", "./data/avatars"))
-MAX_AVATAR_BYTES = 2 * 1024 * 1024
-Image.MAX_IMAGE_PIXELS = 25_000_000  # a small file can decode to a huge picture: refuse those
-
 # every route here is for authenticated users
 router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
 
@@ -30,6 +19,10 @@ router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
 class UserBrief(BaseModel):
     id: int
     username: str
+
+
+class UserListed(UserBrief):
+    avatar_url: str | None
 
 
 class PublicUser(UserBrief):
@@ -66,7 +59,7 @@ class UserPatch(BaseModel):
     welcomed: Literal[True] | None = None  # the first-login page is done; it cannot be undone
 
 
-@router.get("/users", response_model=list[UserBrief])
+@router.get("/users", response_model=list[UserListed])
 def list_users(db: Session = Depends(get_db)):
     return db.scalars(select(User).order_by(User.id)).all()
 
@@ -97,33 +90,3 @@ def patch_user(user_id: int, data: UserPatch, me: User = Depends(current_user), 
         db.rollback()
         raise HTTPException(status_code=409, detail="Email or username already taken")
     return me
-
-
-@router.post("/users/me/avatar", response_model=UserOut)
-def upload_avatar(file: UploadFile = File(...), me: User = Depends(current_user), db: Session = Depends(get_db)):
-    data = file.file.read(MAX_AVATAR_BYTES + 1)
-    if len(data) > MAX_AVATAR_BYTES:
-        raise HTTPException(status_code=413, detail="Image too large (2 MB max)")
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")  # a decompression-bomb warning must refuse the file, not just log
-            image = Image.open(io.BytesIO(data))
-            if image.format not in ("JPEG", "PNG", "WEBP"):
-                raise UnidentifiedImageError("format not allowed")
-            # decoding then re-encoding drops any metadata or payload hidden in the original file
-            image = ImageOps.fit(ImageOps.exif_transpose(image).convert("RGB"), (256, 256))
-    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError, Image.DecompressionBombWarning):
-        raise HTTPException(status_code=415, detail="Not a valid JPEG, PNG or WebP image")
-    AVATAR_DIR.mkdir(parents=True, exist_ok=True)
-    image.save(AVATAR_DIR / f"{me.id}.jpg", "JPEG", quality=85)
-    me.avatar_url = f"/api/avatars/{me.id}.jpg?v={int(time.time())}"  # ?v= defeats the browser cache after a change
-    db.commit()
-    return me
-
-
-@router.get("/avatars/{filename}")
-def avatar(filename: str):
-    path = AVATAR_DIR / filename
-    if not re.fullmatch(r"\d+\.jpg", filename) or not path.is_file():
-        raise HTTPException(status_code=404, detail="Not found")
-    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})

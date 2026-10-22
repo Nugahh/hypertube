@@ -17,7 +17,7 @@ export default function Members({ onOpen }: { onOpen: (id: number) => void }) {
           {users.data.map((u) => (
             <li key={u.id}>
               <button className="member" onClick={() => onOpen(u.id)}>
-                <Avatar user={{ id: u.id, username: u.username, avatar_url: null }} size={40} />
+                <Avatar user={{ id: u.id, username: u.username, avatar_url: u.avatar_url }} size={40} />
                 <span>{u.username}</span>
               </button>
             </li>

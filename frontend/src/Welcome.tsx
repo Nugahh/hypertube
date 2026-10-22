@@ -14,10 +14,10 @@ export default function Welcome({ me, onDone, onLogout }: { me: User; onDone: (u
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // the picture the provider gave (42, Google) stays on offer next to the site's own
-  const given = me.avatar_url && !me.avatar_url.startsWith("/avatars/") ? me.avatar_url : null;
-  const choices = [...(given ? [{ src: given, name: t("welcome.yours") }] : []), ...defaults.map((a) => ({ src: avatarPath(a), name: a.name }))];
-  const shown = picked ?? me.avatar_url ?? (defaults.length ? avatarPath(defaults[me.id % defaults.length]) : null);
+  const choices = defaults.map((a) => ({ src: avatarPath(a), name: a.name }));
+  // only the site's own pictures are offered (never the 42 / Google photo): the first shown is always the same for an account
+  const own = me.avatar_url?.startsWith("/avatars/") ? me.avatar_url : null;
+  const shown = picked ?? own ?? (defaults.length ? avatarPath(defaults[me.id % defaults.length]) : null);
 
   async function submit(e: FormEvent) {
     e.preventDefault();

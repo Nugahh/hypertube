@@ -109,10 +109,14 @@ export const getCatalogSheet = (kind: CatalogKind, id: number, signal: AbortSign
 // the film to open (every copy is a provider's source of it), null when no provider has it
 export const getCatalogCopies = (id: number, signal: AbortSignal) => request<Movie | null>(`/api/catalog/movie/${id}/copies`, { signal });
 // by popularity (of a genre, or all), or, with `q`, what TMDb finds for the words (best match first, no genre)
-export function getCatalog(kind: CatalogKind, genre: number | undefined, q: string, page: number, signal: AbortSignal) {
+export type CatalogSort = "popularity" | "rating" | "year" | "name";
+export function getCatalog(kind: CatalogKind, genre: number | undefined, q: string, page: number, signal: AbortSignal, sort: CatalogSort = "popularity", year?: number, rating?: number) {
   const params = new URLSearchParams({ kind, page: String(page) });
   if (genre !== undefined) params.set("genre", String(genre));
   if (q) params.set("q", q);
+  if (sort !== "popularity") params.set("sort", sort);
+  if (year) params.set("year", String(year));
+  if (rating) params.set("rating", String(rating));
   return request<{ items: CatalogItem[]; page: number; total: number; has_more: boolean }>(`/api/catalog?${params}`, { signal });
 }
 // a catalogue title in the favorites or in my list (a film is only a copy once a provider has it: TMDb's id is always there)
@@ -163,7 +167,7 @@ export const postComment = (movieId: number, comment: string) => send<MovieComme
 export const editComment = (id: number, comment: string) => send<MovieComment>("PATCH", `/api/comments/${id}`, { comment });
 export const deleteComment = (id: number) => send<void>("DELETE", `/api/comments/${id}`);
 
-export const listUsers = (signal: AbortSignal) => request<{ id: number; username: string }[]>("/api/users", { signal });
+export const listUsers = (signal: AbortSignal) => request<Pick<PublicUser, "id" | "username" | "avatar_url">[]>("/api/users", { signal });
 
 export const listClients = (signal: AbortSignal) => request<ApiClient[]>("/api/clients", { signal });
 export const createClient = (name: string) => send<NewApiClient>("POST", "/api/clients", { name });
@@ -171,8 +175,3 @@ export const deleteClient = (id: number) => send<void>("DELETE", `/api/clients/$
 
 export const getUser = (id: number, signal: AbortSignal) => request<PublicUser | User>(`/api/users/${id}`, { signal });
 export const updateProfile = (id: number, changes: ProfileChanges) => send<User>("PATCH", `/api/users/${id}`, changes);
-export function uploadAvatar(file: File) {
-  const body = new FormData();
-  body.append("file", file);
-  return request<User>("/api/users/me/avatar", { method: "POST", body });
-}

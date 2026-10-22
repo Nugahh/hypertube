@@ -61,11 +61,14 @@ async def page(
     kind: Kind = "movie",
     genre: int | None = Query(None, ge=1),
     q: str = Query("", max_length=100),
+    sort: str = Query("popularity", pattern="^(popularity|rating|year|name)$"),
+    year: int | None = Query(None, ge=1888, le=2100),
+    rating: int | None = Query(None, ge=1, le=9),
     page: int = Query(1, ge=1, le=tmdb.MAX_PAGES),
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ):
-    found = await _asked(tmdb.browse(kind, genre, page, _language(user), q.strip()))
+    found = await _asked(tmdb.browse(kind, genre, page, _language(user), q.strip(), sort, year, rating))
     if q.strip() and not found["items"]:  # a typo: ask for the closest title we know instead
         near = _closest(db, kind, q)
         if near:

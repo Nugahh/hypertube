@@ -111,7 +111,7 @@ def test_42_callback_creates_a_member_and_signs_them_in(client, provider, sessio
 
     me = client.get("/api/auth/me").json()
     assert (me["username"], me["email"], me["first_name"], me["last_name"]) == ("ada42", "ada@student.42.fr", "Ada", "Lovelace")
-    assert me["avatar_url"] == "https://cdn.intra.42.fr/users/ada.jpg"
+    assert me["avatar_url"] is None  # the provider photo is not kept
     # no password exists, so the account cannot be entered with a guessed one
     assert client.post("/api/auth/login", json={"username": "ada42", "password": ""}).status_code == 401
     assert client.cookies.get("oauth_state") is None
@@ -127,7 +127,7 @@ def test_google_callback_maps_the_profile(client, provider):
     assert provider.requests[1].url == "https://openidconnect.googleapis.com/v1/userinfo"
     me = client.get("/api/auth/me").json()
     assert (me["username"], me["email"], me["first_name"], me["last_name"]) == ("ada", "ada@example.com", "Ada", "Lovelace")
-    assert me["avatar_url"] == GOOGLE_PROFILE["picture"]
+    assert me["avatar_url"] is None
 
 
 def test_the_same_account_signs_in_to_the_same_member(client, provider, session_factory):

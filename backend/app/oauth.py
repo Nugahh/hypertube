@@ -131,13 +131,12 @@ def _member(db, name, info):
     user = db.scalar(select(User).where(User.email == email))
     if user is None:
         username = _free_username(db, info["username"])
-        avatar = info["avatar"]
         user = User(
             email=email,
             username=username,
             first_name=(info["first_name"] or "").strip()[:50] or username,
             last_name=(info["last_name"] or "").strip()[:50] or username,
-            avatar_url=avatar if avatar and avatar.startswith("https://") and len(avatar) <= 500 else None,
+            avatar_url=None,  # the 42 / Google photo is not kept: the member picks one of the site's own pictures
         )
         db.add(user)
         db.flush()

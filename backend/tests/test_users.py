@@ -1,15 +1,7 @@
-import io
-
 import pytest
-from PIL import Image
 
-from app import models, security, users
+from app import models, security
 from tests.conftest import USER
-
-
-@pytest.fixture(autouse=True)
-def avatar_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(users, "AVATAR_DIR", tmp_path / "avatars")
 
 
 @pytest.fixture
@@ -29,26 +21,14 @@ def bob(logged_in, session_factory):
     return logged_in
 
 
-def png(size=(600, 400), color=(200, 30, 30)):
-    buf = io.BytesIO()
-    Image.new("RGB", size, color).save(buf, "PNG")
-    return buf.getvalue()
-
-
-def upload(client, content, name="me.png", mime="image/png"):
-    return client.post("/api/users/me/avatar", files={"file": (name, content, mime)})
-
-
 def test_every_users_route_is_closed_to_visitors(client):
     assert client.get("/api/users").status_code == 401
     assert client.get("/api/users/1").status_code == 401
     assert client.patch("/api/users/1", json={}).status_code == 401
-    assert client.post("/api/users/me/avatar").status_code == 401
-    assert client.get("/api/avatars/1.jpg").status_code == 401
 
 
-def test_the_user_list_only_exposes_id_and_username(bob):
-    assert bob.get("/api/users").json() == [{"id": 1, "username": "ada_l"}, {"id": 2, "username": "bob"}]
+def test_the_user_list_only_exposes_id_username_and_picture(bob):
+    assert [set(u) for u in bob.get("/api/users").json()] == [{"id", "username", "avatar_url"}] * 2
 
 
 def test_another_profile_never_shows_the_email(bob):
@@ -129,33 +109,3 @@ def test_patch_cannot_set_fields_it_does_not_expose(bob, session_factory):
         assert user.password_hash.startswith("$argon2id$")
         assert user.created_at.year != 2000
     assert bob.get("/api/auth/me").json()["id"] == 1
-
-
-def test_an_uploaded_photo_becomes_a_small_square_jpeg(bob):
-    res = upload(bob, png())
-    assert res.status_code == 200
-    url = res.json()["avatar_url"]
-    assert url.startswith("/api/avatars/1.jpg")
-    served = bob.get(url.split("?")[0])
-    assert served.headers["content-type"] == "image/jpeg"
-    image = Image.open(io.BytesIO(served.content))
-    assert (image.format, image.size) == ("JPEG", (256, 256))
-
-
-def test_a_file_that_is_not_an_image_is_refused(bob):
-    assert upload(bob, b"just some text", "me.png").status_code == 415
-
-
-def test_an_svg_with_a_script_is_refused(bob):
-    svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
-    assert upload(bob, svg, "me.svg", "image/svg+xml").status_code == 415
-
-
-def test_a_photo_over_2_mb_is_refused(bob):
-    assert upload(bob, b"\0" * (2 * 1024 * 1024 + 1)).status_code == 413
-
-
-def test_the_avatar_route_only_serves_avatar_files(bob):
-    assert bob.get("/api/avatars/2.jpg").status_code == 404  # nothing uploaded for user 2
-    assert bob.get("/api/avatars/secret.txt").status_code == 404
-    assert bob.get("/api/avatars/..%2Fusers.py").status_code == 404

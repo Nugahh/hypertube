@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getCatalog, getCatalogCopies, setCatalogBookmark, getCatalogGenres, getCatalogSheet, type CatalogItem, type CatalogKind, type Movie } from "./api";
+import { getCatalog, getCatalogCopies, setCatalogBookmark, getCatalogGenres, getCatalogSheet, type CatalogSort, type CatalogItem, type CatalogKind, type Movie } from "./api";
 import { Marks } from "./Card";
 import { gradient } from "./format";
 import { LetterboxdLink } from "./logos";
@@ -75,6 +75,8 @@ export function Sheet({ item, onClose, onFound }: { item: CatalogItem; onClose: 
   );
 }
 
+const SORTS: [CatalogSort, string][] = [["popularity", "sort.popularity"], ["rating", "sort.rating"], ["year", "sort.year"], ["name", "sort.name"]];
+
 // every film or series TMDb lists, by popularity and by genre, or finds for the typed words (`q`): it keeps loading as the
 // member scrolls. A fixed `kind` (the Films and Series tabs) hides the choice between the two.
 export default function Catalog({ onSelect, kind: fixed, q = "" }: { onSelect: (m: Movie) => void; kind?: CatalogKind; q?: string }) {
@@ -82,9 +84,12 @@ export default function Catalog({ onSelect, kind: fixed, q = "" }: { onSelect: (
   const [picked, setKind] = useState<CatalogKind>("movie");
   const kind = fixed ?? picked;
   const [genre, setGenre] = useState<number>();
+  const [sort, setSort] = useState<CatalogSort>("popularity");
+  const [year, setYear] = useState<number>();
+  const [rating, setRating] = useState<number>();
   const [open, setOpen] = useState<CatalogItem | null>(null);
   const genres = useApi((signal) => getCatalogGenres(kind, signal), [], [kind, lang]); // the genres and summaries come in the site's language
-  const pages = useInfinite<CatalogItem>((page, signal) => getCatalog(kind, q ? undefined : genre, q, page, signal), [kind, genre, q, lang], q ? 350 : 0);
+  const pages = useInfinite<CatalogItem>((page, signal) => getCatalog(kind, q ? undefined : genre, q, page, signal, sort, year, rating), [kind, genre, q, lang, sort, year, rating], q ? 350 : 0);
 
   // while the end marker is on screen, load the next page (same as the library grid)
   const end = useRef<HTMLDivElement>(null);
@@ -106,6 +111,21 @@ export default function Catalog({ onSelect, kind: fixed, q = "" }: { onSelect: (
               {t(key)}
             </button>
           ))}
+        </div>
+      )}
+      {!q && (
+        <div className="filters sorts" role="group" aria-label={t("filters.aria")}>
+          <select aria-label={t("sort.aria")} value={sort} onChange={(e) => setSort(e.target.value as CatalogSort)}>
+            {SORTS.map(([s, key]) => <option key={s} value={s}>{t(key)}</option>)}
+          </select>
+          <select aria-label={t("filter.rating")} value={rating ?? ""} onChange={(e) => setRating(e.target.value ? Number(e.target.value) : undefined)}>
+            <option value="">{t("filter.rating")}</option>
+            {[5, 6, 7, 8].map((n) => <option key={n} value={n}>★ {n}+</option>)}
+          </select>
+          <select aria-label={t("filter.year")} value={year ?? ""} onChange={(e) => setYear(e.target.value ? Number(e.target.value) : undefined)}>
+            <option value="">{t("filter.year")}</option>
+            {Array.from({ length: new Date().getFullYear() - 1949 }, (_, i) => new Date().getFullYear() - i).map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
         </div>
       )}
       {!q && (

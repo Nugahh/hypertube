@@ -327,3 +327,5 @@ a.mark{text-decoration:none;color:inherit}
 .levels i{display:block;width:6px;height:6px;border-radius:50%;background:#9aa0a8;transition:all .15s}
 .levels button:hover i{background:#fff}
 .levels button.on i{width:12px;height:12px;background:#fff}
+.filters.sorts{padding:8px 4vw 0;margin-bottom:0}
+.filters.sorts select{width:auto;max-width:100%;padding:6px 30px 6px 12px;font-size:13px;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2710%27 height=%276%27%3E%3Cpath d=%27M0 0l5 6 5-6z%27 fill=%27%23999%27/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}

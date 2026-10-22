@@ -9,7 +9,7 @@ export default function ProfileModal({ id, me, onUpdate, onClose }: { id: number
     <div className="overlay top" onClick={onClose}>
       <div className="modal narrow" role="dialog" aria-modal="true" aria-label={t("profile.title")} onClick={(e) => e.stopPropagation()}>
         <button className="close" onClick={onClose} aria-label={t("modal.close")}>✕</button>
-        <ProfilePage id={id} me={me} onUpdate={onUpdate} />
+        <ProfilePage id={id} me={me} onUpdate={onUpdate} onSaved={onClose} />
       </div>
     </div>
   );

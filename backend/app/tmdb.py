@@ -180,7 +180,10 @@ async def genre_names(kind, language):
     return _genres[(kind, language)]
 
 
-async def browse(kind, genre, page, language, q=None):
+SORTS = {"popularity": "popularity.desc", "rating": "vote_average.desc", "year": "{date}.desc", "name": "{title}.asc"}
+
+
+async def browse(kind, genre, page, language, q=None, sort="popularity", year=None, rating=None):
     """One page of the catalogue: the films or series TMDb lists by popularity (of a genre, or all), or the ones that answer
     the search `q` (best match first; TMDb does not filter a search by genre), as thumbnails."""
     names = await genre_names(kind, language)
@@ -189,9 +192,15 @@ async def browse(kind, genre, page, language, q=None):
         path, params["query"] = f"/search/{kind}", q
     else:
         path = f"/discover/{kind}"
-        params |= {"sort_by": "popularity.desc", "vote_count.gte": 100}  # nobody-rated titles are no catalogue
+        film = kind == "movie"
+        params |= {"sort_by": SORTS[sort].format(date="primary_release_date" if film else "first_air_date", title="title" if film else "name"),
+                   "vote_count.gte": 100}  # nobody-rated titles are no catalogue
         if genre:
             params["with_genres"] = genre
+        if year:
+            params["primary_release_year" if film else "first_air_date_year"] = year
+        if rating:
+            params["vote_average.gte"] = rating
     found = await _call(path, **params)
     items = [
         {

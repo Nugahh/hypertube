@@ -1,5 +1,5 @@
 import { useState, type ChangeEvent, type FormEvent } from "react";
-import { createClient, deleteClient, getUser, listClients, updateProfile, uploadAvatar, type NewApiClient, type PublicUser, type User } from "./api";
+import { createClient, deleteClient, getUser, listClients, updateProfile, type NewApiClient, type PublicUser, type User } from "./api";
 import { avatarPath, useDefaultAvatars } from "./avatars";
 import { Field, validUsername } from "./AuthPage";
 import { errorText, LANGS, useI18n } from "./i18n";
@@ -9,20 +9,12 @@ export function Avatar({ user, size = 36 }: { user: Pick<PublicUser, "id" | "ava
   const defaults = useDefaultAvatars();
   const src = user.avatar_url ?? (defaults.length ? avatarPath(defaults[user.id % defaults.length]) : null);
   // a class emblem is a transparent cut-out: it is drawn on a dark disc (an uploaded photo fills the circle)
-  if (src?.startsWith("/avatars/"))
-    return <span className="avatar emblem" style={{ width: size, height: size, backgroundImage: `url(${src})` }} aria-hidden />;
-  return src ? (
-    <img className="avatar" src={src} alt="" width={size} height={size} />
-  ) : (
-    <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.42 }} aria-hidden>
-      {user.username[0]?.toUpperCase()}
-    </span>
-  );
+  if (!src || src.startsWith("/avatars/"))
+    return <span className="avatar emblem" style={{ width: size, height: size, backgroundImage: src ? `url(${src})` : undefined }} aria-hidden />;
+  return <img className="avatar" src={src} alt="" width={size} height={size} />;
 }
 
-const MAX_AVATAR = 2 * 1024 * 1024; // same limit as the backend
-
-function OwnProfile({ me, onUpdate }: { me: User; onUpdate: (u: User) => void }) {
+function OwnProfile({ me, onUpdate, onSaved }: { me: User; onUpdate: (u: User) => void; onSaved?: () => void }) {
   const { t } = useI18n();
   const [form, setForm] = useState({ username: me.username, email: me.email, first_name: me.first_name, last_name: me.last_name, language: me.language });
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -30,11 +22,12 @@ function OwnProfile({ me, onUpdate }: { me: User; onUpdate: (u: User) => void })
   const defaults = useDefaultAvatars();
   const set = (key: keyof typeof form) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm({ ...form, [key]: e.target.value });
 
-  async function run(action: () => Promise<User>) {
+  async function run(action: () => Promise<User>, close = false) {
     setBusy(true);
     setMessage(null);
     try {
       onUpdate(await action());
+      if (close && onSaved) return onSaved(); // the Save button closes the window; picking a picture or a language does not
       setMessage({ ok: true, text: t("profile.saved") });
     } catch (err) {
       setMessage({ ok: false, text: errorText(t, err) });
@@ -45,15 +38,7 @@ function OwnProfile({ me, onUpdate }: { me: User; onUpdate: (u: User) => void })
   const save = (e: FormEvent) => {
     e.preventDefault();
     if (!validUsername(form.username)) return setMessage({ ok: false, text: t("v.username") });
-    return run(() => updateProfile(me.id, form));
-  };
-
-  const pick = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // lets the same file be picked again
-    if (!file) return;
-    if (file.size > MAX_AVATAR) return setMessage({ ok: false, text: errorText(t, { status: 413 }) });
-    return run(() => uploadAvatar(file));
+    return run(() => updateProfile(me.id, form), true);
   };
 
   return (
@@ -62,10 +47,6 @@ function OwnProfile({ me, onUpdate }: { me: User; onUpdate: (u: User) => void })
         <Avatar user={me} size={96} />
         <div>
           <h1>{me.username}</h1>
-          <label className="btn-link file">
-            {t("profile.picture.change")}
-            <input type="file" accept="image/jpeg,image/png,image/webp" onChange={pick} hidden />
-          </label>
         </div>
       </div>
       {defaults.length > 0 && (
@@ -164,7 +145,7 @@ function ApiAccess() {
 
 // own profile: editable. Someone else's: name and picture only (the email stays private, server side).
 // It is shown in a window over the page (ProfileModal), not as a page of its own.
-export default function ProfilePage({ id, me, onUpdate }: { id: number; me: User; onUpdate: (u: User) => void }) {
+export default function ProfilePage({ id, me, onUpdate, onSaved }: { id: number; me: User; onUpdate: (u: User) => void; onSaved?: () => void }) {
   const { t } = useI18n();
   const own = id === me.id;
   const other = useApi<PublicUser | null>((signal) => (own ? Promise.resolve(null) : getUser(id, signal)), null, [id, own]);
@@ -173,7 +154,7 @@ export default function ProfilePage({ id, me, onUpdate }: { id: number; me: User
     <section className="profile">
         {own ? (
           <>
-            <OwnProfile me={me} onUpdate={onUpdate} />
+            <OwnProfile me={me} onUpdate={onUpdate} onSaved={onSaved} />
             <ApiAccess />
           </>
         ) : other.error ? (
