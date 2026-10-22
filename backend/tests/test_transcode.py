@@ -137,3 +137,24 @@ def test_a_missing_ffmpeg_is_reported_not_crashed(logged_in, monkeypatch, tmp_pa
     main.app.dependency_overrides[engine_module.get_engine] = lambda: engine
     movie = next(m["id"] for m in logged_in.get("/api/search").json() if m["title"] == "Sintel.2010.720p")
     assert logged_in.get(f"/api/movies/{movie}/stream").status_code == 501
+
+
+def frames(data, tmp_path):
+    path = tmp_path / "seek.mp4"
+    path.write_bytes(data)
+    out = subprocess.run(
+        [transcode.FFPROBE, "-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    return int(out.strip())
+
+
+async def _from(source, start):
+    return b"".join([c async for c in await transcode.convert(source, 0, start)])
+
+
+@needs_ffmpeg
+def test_a_complete_file_is_converted_from_where_the_player_seeks(videos, tmp_path):
+    whole = frames(asyncio.run(_from(stream.FileSource(videos["avi"]), 0)), tmp_path)
+    later = frames(asyncio.run(_from(stream.FileSource(videos["avi"]), 1)), tmp_path)
+    assert whole == 75 and 45 <= later <= 55  # re-encoded video: the first second (25 pictures) is skipped exactly

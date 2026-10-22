@@ -73,9 +73,13 @@ export default function Player({ movie, details, resumeAt = 0, onBack, onChanged
   const converted = !native || audio.index > 0;
   const src = converted ? streamUrl(movie.id, audio.index, audio.start) : streamUrl(movie.id);
   const offset = converted ? audio.start : 0;
-  const seekable = !converted && Number.isFinite(length) && length > 0;
-  // a converted stream only knows what it has produced so far: the length is TMDb's runtime, or not shown
-  const total = seekable ? length : details?.runtime ? details.runtime * 60 : 0;
+  // a converted stream only knows what it has produced so far: its length is TMDb's runtime, or not shown. It is sought by asking
+  // the server for a new conversion that starts at the wanted second (the film must be downloaded up to there)
+  const runtime = details?.runtime ? details.runtime * 60 : 0;
+  const nativeSeekable = !converted && Number.isFinite(length) && length > 0;
+  const seekable = nativeSeekable || (converted && runtime > 0);
+  const total = nativeSeekable ? length : runtime;
+  const [dragging, setDragging] = useState<number | null>(null); // where the seek bar is held, for a converted stream (it jumps on release)
   const position = offset + time;
   const live = useRef({ converted, offset });
   live.current = { converted, offset };
@@ -101,10 +105,19 @@ export default function Player({ movie, details, resumeAt = 0, onBack, onChanged
     if (v.paused) v.play().catch(() => {}); // a play() the browser refuses is not an error worth showing
     else v.pause();
   }
-  function skip(seconds: number) {
+  function jump(to: number) {
+    const target = Math.max(0, total ? Math.min(to, total - 1) : to);
+    if (live.current.converted) {
+      seekTo.current = 0; // the new stream starts there: nothing to jump to once it is loaded
+      setTime(0);
+      setAudio((a) => ({ ...a, start: Math.floor(target) }));
+      setStarted(false);
+      return;
+    }
     const v = video.current;
-    if (v && !live.current.converted && Number.isFinite(v.duration)) v.currentTime = Math.min(Math.max(v.currentTime + seconds, 0), v.duration);
+    if (v && Number.isFinite(v.duration)) v.currentTime = Math.min(target, v.duration);
   }
+  const skip = (seconds: number) => jump(live.current.offset + (video.current?.currentTime ?? 0) + seconds);
   function setVolumeTo(x: number) {
     const v = video.current;
     if (!v) return;
@@ -274,9 +287,11 @@ export default function Player({ movie, details, resumeAt = 0, onBack, onChanged
           min={0}
           max={total || 1}
           step={0.5}
-          value={total ? Math.min(position, total) : 0}
+          value={total ? Math.min(dragging ?? position, total) : 0}
           disabled={!seekable}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => video.current && (video.current.currentTime = Number(e.target.value))}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => (converted ? setDragging(Number(e.target.value)) : jump(Number(e.target.value)))}
+          onPointerUp={() => { if (dragging !== null) jump(dragging); setDragging(null); }}
+          onKeyUp={() => { if (dragging !== null) jump(dragging); setDragging(null); }}
           style={{ "--played": pct(position), "--buffered": pct(offset + buffered) } as React.CSSProperties}
           aria-label={t("player.seek")}
           aria-valuetext={clock(position)}

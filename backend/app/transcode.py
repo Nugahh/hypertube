@@ -61,25 +61,27 @@ async def convert(source, audio=0, start=0):
 
     `audio` picks the audio track, `start` skips the first seconds (what the member had already watched).
 
-    shortcut: a live conversion cannot be sliced, so the player cannot seek in what has not been produced yet;
-    a movie that is fully downloaded could be converted once to a seekable file.
+    The player seeks by asking for a new conversion that starts further. shortcut: a film still downloading goes through a
+    pipe, which cannot be seeked, so everything before `start` is read (and the film must have been downloaded up to there).
     """
     codec = await probe_codec(source)
+    # re-encoded video: ffmpeg opens the complete file itself and jumps there at once; a copied video (h264) is skipped on the
+    # output side, which only reads bytes, and resumes at the next keyframe
+    direct = isinstance(source, stream.FileSource) and "copy" not in video_args(codec)
     proc = await asyncio.create_subprocess_exec(
-        FFMPEG, "-v", "error", "-i", "pipe:0",
-        # shortcut: skipping is done on the output side (a pipe cannot be seeked), so everything before `start` is still read,
-        # and with a copied video the picture resumes at the next keyframe
-        *(["-ss", str(start)] if start else []),
+        FFMPEG, "-v", "error",
+        *(["-ss", str(start), "-i", str(source.path)] if direct else ["-i", "pipe:0"]),
+        *(["-ss", str(start)] if start and not direct else []),
         "-map", "0:v:0", "-map", f"0:a:{audio}?",  # first video, the chosen audio if any: no subtitle streams in an mp4
         *video_args(codec), "-c:a", "aac", "-b:a", "128k",
         "-movflags", "frag_keyframe+empty_moov+default_base_moof",  # playable before the end is written
         "-f", "mp4", "pipe:1",
-        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        stdin=asyncio.subprocess.DEVNULL if direct else asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
     )
-    return _pump(source, proc)
+    return _pump(source, proc, feed_it=not direct)
 
 
-async def _pump(source, proc):
+async def _pump(source, proc, feed_it=True):
     async def feed():
         try:
             async for chunk in stream.iter_bytes(source, 0, source.size - 1):
@@ -90,12 +92,13 @@ async def _pump(source, proc):
         finally:
             proc.stdin.close()
 
-    feeder = asyncio.create_task(feed())
+    feeder = asyncio.create_task(feed()) if feed_it else None
     try:
         while chunk := await proc.stdout.read(64 * 1024):
             yield chunk
     finally:  # also when the viewer leaves: never leave an ffmpeg running
-        feeder.cancel()
+        if feeder:
+            feeder.cancel()
         if proc.returncode is None:
             proc.kill()
         await proc.wait()
