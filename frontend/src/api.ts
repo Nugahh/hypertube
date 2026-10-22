@@ -167,8 +167,6 @@ export const postComment = (movieId: number, comment: string) => send<MovieComme
 export const editComment = (id: number, comment: string) => send<MovieComment>("PATCH", `/api/comments/${id}`, { comment });
 export const deleteComment = (id: number) => send<void>("DELETE", `/api/comments/${id}`);
 
-export const listUsers = (signal: AbortSignal) => request<Pick<PublicUser, "id" | "username" | "avatar_url">[]>("/api/users", { signal });
-
 export const listClients = (signal: AbortSignal) => request<ApiClient[]>("/api/clients", { signal });
 export const createClient = (name: string) => send<NewApiClient>("POST", "/api/clients", { name });
 export const deleteClient = (id: number) => send<void>("DELETE", `/api/clients/${id}`);

@@ -6,7 +6,6 @@ import Catalog from "./Catalog";
 import LangMenu from "./LangMenu";
 import AuthPage from "./AuthPage";
 import { errorText, useI18n } from "./i18n";
-import Members from "./Members";
 import MovieModal from "./MovieModal";
 import ProfileModal from "./ProfileModal";
 import { Avatar } from "./ProfilePage";
@@ -15,7 +14,7 @@ import Shelf from "./Shelf";
 import Welcome from "./Welcome";
 import { useApi, type State } from "./useApi";
 
-type View = "home" | "films" | "series" | "list" | "favorites" | "downloads" | "members";
+type View = "home" | "films" | "series" | "list" | "favorites" | "downloads";
 const TABS: [View, string][] = [
   ["home", "nav.home"],
   ["films", "nav.films"],
@@ -23,7 +22,6 @@ const TABS: [View, string][] = [
   ["list", "nav.list"],
   ["favorites", "nav.favorites"],
   ["downloads", "nav.downloads"],
-  ["members", "nav.members"],
 ];
 
 function Status({ state, children }: { state: State<Movie[]>; children: ReactNode }) {
@@ -106,7 +104,6 @@ function Library({ user, onUserChange, onLogout }: {
 
   const page = () => {
     if (searching) return <main><Catalog q={q.trim()} onSelect={setSelected} /></main>;
-    if (view === "members") return <Members onOpen={setProfileId} />;
     if (view === "list") return shelf(t("nav.list"), t("shelf.list.empty"), (s) => getShelf("list", s), "list");
     if (view === "favorites") return shelf(t("nav.favorites"), t("shelf.favorites.empty"), (s) => getShelf("favorite", s), "favorite");
     if (view === "downloads") return shelf(t("nav.downloads"), t("shelf.downloads.empty"), getDownloads);
